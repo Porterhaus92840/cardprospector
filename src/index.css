@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent iOS bounce overscroll giving a white edge */
+html, body {
+  background: #0c0a09;
+  overscroll-behavior-y: none;
+}
+
+/* Smooth fonts on Windows Chrome */
+* {
+  text-rendering: optimizeLegibility;
+}
