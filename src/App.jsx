@@ -27,8 +27,8 @@ const CONFIG = {
   // PSA API token (Bearer). Get from psacard.com/publicapi after registration.
   // Used for portfolio cert verification only — pop data is NOT in this API.
   PSA_API_TOKEN: '',
-  // Gate the Admin panel. Replace with something only you know.
-  ADMIN_PASSPHRASE: 'change-me-before-launch',
+  // NOTE: the admin gate now lives server-side (ADMIN_TOKEN in the server .env),
+  // verified via POST /api/admin/verify — not in this public bundle.
   // Where the footer "Send feedback" link points. Consider a dedicated
   // address (e.g. hello@cardprospector.app) instead of a personal inbox.
   CONTACT_EMAIL: 'daleporter2009@yahoo.com',
@@ -484,13 +484,9 @@ function ScoreBadge({ value, label }) {
   );
 }
 
-function ScoutTab({ cards, popOverrides, onSelectCard, watchlist, onToggleWatch }) {
-  // Apply admin pop overrides on top of seeded pop data.
-  const cardsWithOverrides = cards.map((c) => {
-    const override = popOverrides[c.id];
-    return override ? { ...c, pop: override } : c;
-  });
-  const scored = cardsWithOverrides
+function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
+  // Cards (and their pop data) come from the API, which reads MySQL.
+  const scored = cards
     .map((c) => ({ card: c, ...computeCombinedScore(c) }))
     .sort((a, b) => b.combinedScore - a.combinedScore);
 
@@ -862,21 +858,45 @@ function PortfolioTab({ portfolio, allCards, onRemove }) {
   );
 }
 
-function AdminPanel({ popOverrides, onUpdatePopOverride, onClose }) {
-  const [selectedCardId, setSelectedCardId] = useState(FEATURED_CARDS_SEED[0].id);
+function AdminPanel({ cards, adminToken, onSaved, onClose }) {
+  const [selectedCardId, setSelectedCardId] = useState(cards[0]?.id || '');
   const [psa10, setPsa10] = useState('');
   const [psa10Prior, setPsa10Prior] = useState('');
   const [listings, setListings] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
 
-  const save = () => {
-    const pop = {
-      psa10: parseInt(psa10) || 0,
-      psa10_30d_prior: parseInt(psa10Prior) || 0,
-      listings_active: parseInt(listings) || 0,
-    };
-    onUpdatePopOverride(selectedCardId, pop);
-    setPsa10(''); setPsa10Prior(''); setListings('');
+  const save = async () => {
+    if (!selectedCardId) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await fetch('/api/admin/pop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({
+          id: selectedCardId,
+          psa10,
+          psa10_30d_prior: psa10Prior,
+          listings_active: listings,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg({ ok: false, text: data.error || `Save failed (${res.status})` });
+      } else {
+        setMsg({ ok: true, text: 'Saved to the database.' });
+        setPsa10(''); setPsa10Prior(''); setListings('');
+        onSaved();
+      }
+    } catch {
+      setMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const withPop = cards.filter((c) => c.pop);
 
   return (
     <div className="fixed inset-0 bg-zinc-950 z-50 overflow-y-auto">
@@ -891,30 +911,38 @@ function AdminPanel({ popOverrides, onUpdatePopOverride, onClose }) {
             onChange={(e) => setSelectedCardId(e.target.value)}
             className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
           >
-            {FEATURED_CARDS_SEED.map((c) => (
+            {cards.map((c) => (
               <option key={c.id} value={c.id}>{c.player} · {c.set}</option>
             ))}
           </select>
           <input type="number" placeholder="PSA 10 pop (now)" value={psa10} onChange={(e)=>setPsa10(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
           <input type="number" placeholder="PSA 10 pop (30d ago)" value={psa10Prior} onChange={(e)=>setPsa10Prior(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
           <input type="number" placeholder="Active listings on eBay" value={listings} onChange={(e)=>setListings(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
-          <button onClick={save} className="w-full bg-orange-500 hover:bg-orange-400 text-zinc-950 font-semibold rounded py-2.5">Save override</button>
+          <button onClick={save} disabled={saving} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
+            {saving ? 'Saving…' : 'Save to database'}
+          </button>
+          {msg && (
+            <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-orange-500/10 border border-orange-500/30 text-orange-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
+              {msg.text}
+            </div>
+          )}
+          <div className="text-[10px] text-zinc-500 leading-relaxed">
+            Saved values persist in the database and apply for everyone. Leave all three
+            blank and save to revert a card to “Player signal only.”
+          </div>
         </div>
         <div className="mt-6">
-          <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Current overrides</div>
+          <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Current pop data</div>
           <div className="space-y-1.5">
-            {Object.keys(popOverrides).length === 0 && (
-              <div className="text-xs text-zinc-500">None yet.</div>
+            {withPop.length === 0 && (
+              <div className="text-xs text-zinc-500">No cards have pop data yet.</div>
             )}
-            {Object.entries(popOverrides).map(([id, p]) => {
-              const card = FEATURED_CARDS_SEED.find((c) => c.id === id);
-              return (
-                <div key={id} className="text-xs bg-zinc-900/60 border border-zinc-800 rounded p-2">
-                  <div className="font-medium">{card?.player}</div>
-                  <div className="text-zinc-500">PSA10: {p.psa10} (was {p.psa10_30d_prior}) · {p.listings_active} listings</div>
-                </div>
-              );
-            })}
+            {withPop.map((c) => (
+              <div key={c.id} className="text-xs bg-zinc-900/60 border border-zinc-800 rounded p-2">
+                <div className="font-medium">{c.player}</div>
+                <div className="text-zinc-500">PSA10: {c.pop.psa10} (was {c.pop.psa10_30d_prior}) · {c.pop.listings_active} listings</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1005,22 +1033,35 @@ export default function CardProspector() {
   const [tab, setTab] = useState('scout');
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [adminGate, setAdminGate] = useState('');
+  const [adminToken, setAdminToken] = useState('');
+
+  // Card data comes from the API (MySQL). Until it loads — or if the API is
+  // unreachable — we fall back to the bundled seed so the app still renders.
+  const [allCards, setAllCards] = useState(FEATURED_CARDS_SEED);
+
+  const refetchCards = useCallback(async () => {
+    try {
+      const res = await fetch('/api/cards');
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      if (Array.isArray(data.cards) && data.cards.length) setAllCards(data.cards);
+    } catch {
+      // keep the bundled fallback seed
+    }
+  }, []);
 
   useEffect(() => { saveState(state); }, [state]);
+  useEffect(() => { refetchCards(); }, [refetchCards]);
 
   const cards = useMemo(
-    () => FEATURED_CARDS_SEED.filter((c) => c.sport === sport),
-    [sport]
+    () => allCards.filter((c) => c.sport === sport),
+    [allCards, sport]
   );
 
   const selectedCard = useMemo(() => {
     if (!selectedCardId) return null;
-    const base = cards.find((c) => c.id === selectedCardId);
-    if (!base) return null;
-    const override = state.popOverrides[base.id];
-    return override ? { ...base, pop: override } : base;
-  }, [selectedCardId, cards, state.popOverrides]);
+    return cards.find((c) => c.id === selectedCardId) || null;
+  }, [selectedCardId, cards]);
 
   const toggleWatch = useCallback((id) => {
     setState((s) => ({
@@ -1032,28 +1073,37 @@ export default function CardProspector() {
   const addToPortfolio = useCallback((id) => {
     setState((s) => {
       if (s.portfolio.some((p) => p.cardId === id)) return s;
-      const card = FEATURED_CARDS_SEED.find((c) => c.id === id);
+      const card = allCards.find((c) => c.id === id);
       return {
         ...s,
         portfolio: [...s.portfolio, { cardId: id, purchasePrice: card?.askPrice || 0, addedAt: Date.now() }],
       };
     });
-  }, []);
+  }, [allCards]);
 
   const removeFromPortfolio = useCallback((id) => {
     setState((s) => ({ ...s, portfolio: s.portfolio.filter((p) => p.cardId !== id) }));
   }, []);
 
-  const updatePopOverride = useCallback((id, pop) => {
-    setState((s) => ({ ...s, popOverrides: { ...s.popOverrides, [id]: pop } }));
-  }, []);
-
-  const openAdmin = () => {
+  // Unlock the admin panel by verifying the passphrase against the server
+  // (ADMIN_TOKEN in the server .env). The token is kept in memory for writes.
+  const openAdmin = async () => {
     const entered = window.prompt('Admin passphrase');
-    if (entered === CONFIG.ADMIN_PASSPHRASE) {
-      setAdminOpen(true);
-    } else if (entered !== null) {
-      window.alert('Incorrect passphrase.');
+    if (entered == null) return;
+    try {
+      const res = await fetch('/api/admin/verify', {
+        method: 'POST',
+        headers: { 'x-admin-token': entered },
+      });
+      const data = await res.json().catch(() => ({ ok: false }));
+      if (data.ok) {
+        setAdminToken(entered);
+        setAdminOpen(true);
+      } else {
+        window.alert('Incorrect passphrase.');
+      }
+    } catch {
+      window.alert('Could not reach the server.');
     }
   };
 
@@ -1073,7 +1123,6 @@ export default function CardProspector() {
         ) : tab === 'scout' ? (
           <ScoutTab
             cards={cards}
-            popOverrides={state.popOverrides}
             onSelectCard={setSelectedCardId}
             watchlist={state.watchlist}
             onToggleWatch={toggleWatch}
@@ -1083,7 +1132,7 @@ export default function CardProspector() {
         ) : (
           <PortfolioTab
             portfolio={state.portfolio}
-            allCards={FEATURED_CARDS_SEED}
+            allCards={allCards}
             onRemove={removeFromPortfolio}
           />
         )}
@@ -1099,8 +1148,9 @@ export default function CardProspector() {
 
       {adminOpen && (
         <AdminPanel
-          popOverrides={state.popOverrides}
-          onUpdatePopOverride={updatePopOverride}
+          cards={allCards}
+          adminToken={adminToken}
+          onSaved={refetchCards}
           onClose={() => setAdminOpen(false)}
         />
       )}
