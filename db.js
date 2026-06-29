@@ -59,6 +59,7 @@ const CREATE_PRICE_TABLE_SQL = `
     source       VARCHAR(32)  NOT NULL,
     price_raw    DECIMAL(12,2) NULL,
     price_psa10  DECIMAL(12,2) NULL,
+    price_bgs10  DECIMAL(12,2) NULL,
     currency     CHAR(3)      NOT NULL DEFAULT 'USD',
     sample_size  INT          NULL,
     observed_on  DATE         NOT NULL,
@@ -145,7 +146,7 @@ export async function initDb() {
  */
 export async function getPriceSummaries() {
   const [latest] = await pool.query(`
-    SELECT ph.card_id, ph.price_raw, ph.price_psa10, ph.currency, ph.source, ph.sample_size, ph.observed_on
+    SELECT ph.card_id, ph.price_raw, ph.price_psa10, ph.price_bgs10, ph.currency, ph.source, ph.sample_size, ph.observed_on
       FROM price_history ph
       JOIN (SELECT card_id, MAX(observed_on) AS mx FROM price_history GROUP BY card_id) m
         ON ph.card_id = m.card_id AND ph.observed_on = m.mx
@@ -168,6 +169,7 @@ export async function getPriceSummaries() {
   for (const r of latest) {
     const raw = r.price_raw != null ? Number(r.price_raw) : null;
     const psa10 = r.price_psa10 != null ? Number(r.price_psa10) : null;
+    const bgs10 = r.price_bgs10 != null ? Number(r.price_bgs10) : null;
     const p30 = priorMap[r.card_id];
     const asOf = r.observed_on instanceof Date
       ? r.observed_on.toISOString().slice(0, 10)
@@ -175,6 +177,8 @@ export async function getPriceSummaries() {
     out[r.card_id] = {
       raw,
       psa10,
+      bgs10,
+      tag10: null, // TAG not tracked by SportsCardsPro; manual entry is a future add
       currency: r.currency,
       source: r.source,
       sampleSize: r.sample_size,
@@ -193,12 +197,12 @@ export async function getCards() {
 }
 
 /** Record (upsert) one daily price snapshot for a card (raw + PSA 10). */
-export async function recordPrice(cardId, { source, priceRaw = null, pricePsa10 = null, currency = 'USD', sampleSize = null, observedOn }) {
+export async function recordPrice(cardId, { source, priceRaw = null, pricePsa10 = null, priceBgs10 = null, currency = 'USD', sampleSize = null, observedOn }) {
   await pool.query(
-    `INSERT INTO price_history (card_id, source, price_raw, price_psa10, currency, sample_size, observed_on)
-     VALUES (?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE price_raw=VALUES(price_raw), price_psa10=VALUES(price_psa10), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
-    [cardId, source, priceRaw, pricePsa10, currency, sampleSize, observedOn]
+    `INSERT INTO price_history (card_id, source, price_raw, price_psa10, price_bgs10, currency, sample_size, observed_on)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE price_raw=VALUES(price_raw), price_psa10=VALUES(price_psa10), price_bgs10=VALUES(price_bgs10), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
+    [cardId, source, priceRaw, pricePsa10, priceBgs10, currency, sampleSize, observedOn]
   );
 }
 

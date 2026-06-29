@@ -28,10 +28,14 @@ const CONFIG = {
   // PSA API token (Bearer). Get from psacard.com/publicapi after registration.
   // Used for portfolio cert verification only — pop data is NOT in this API.
   PSA_API_TOKEN: '',
-  // Grading-flip model (tunable): target buy = raw price minus BUY_DISCOUNT;
-  // GRADING_COST is the assumed PSA fee per card used in the projected return.
-  BUY_DISCOUNT: 0.10,
-  GRADING_COST: 25,
+  // Grading-flip model (tunable). Costs below are real, not assumptions:
+  //  - TAG Basic grading is $22/card (10-card minimum order).
+  //  - eBay trading-card final value fee is 13.6% + $0.40/order (2026).
+  // (Cards sold $1,000+ may qualify for a 50% FVF discount promo — not modeled.)
+  BUY_DISCOUNT: 0.10,        // target buy = raw price minus this
+  GRADING_COST: 22,          // TAG Basic, $/card
+  EBAY_FEE_RATE: 0.136,      // eBay final value fee
+  EBAY_PER_ORDER_FEE: 0.40,
   // NOTE: the admin gate now lives server-side (ADMIN_TOKEN in the server .env),
   // verified via POST /api/admin/verify — not in this public bundle.
   // Where the footer "Send feedback" link points. Consider a dedicated
@@ -378,28 +382,47 @@ function computeCombinedScore(card) {
 }
 
 /* ----------------------------------------------------------------------------
-   GRADING FLIP — buy the raw card (at a discount), grade it, sell as a PSA 10.
-   targetBuy = raw − BUY_DISCOUNT; profit = PSA10 − targetBuy − GRADING_COST.
-   flipScore blends engine conviction (combined) with the grading arbitrage so
-   the Scout list surfaces quality cards with the best raw→PSA10 upside.
-   Returns null unless the card has BOTH a raw and a PSA 10 price.
+   GRADING FLIP — buy the raw card (at a discount), grade it (TAG), sell graded.
+   All costs are real: TAG grading fee + eBay final value fee + per-order fee.
+   We can't source TAG sale prices, so we show the NET return for each graded
+   comp we DO have (PSA 10, BGS 10; TAG when known) and let the user judge.
+   flipScore blends engine conviction with the (PSA-10-referenced) net arbitrage.
+   Returns null unless the card has a raw price and at least one graded comp.
    ---------------------------------------------------------------------------- */
 function computeFlip(card, combinedScore) {
   const raw = card.price?.raw;
-  const psa10 = card.price?.psa10;
-  if (raw == null || psa10 == null) return null;
+  if (raw == null) return null;
   const targetBuy = raw * (1 - CONFIG.BUY_DISCOUNT);
   const costBasis = targetBuy + CONFIG.GRADING_COST;
-  const profit = psa10 - costBasis;
-  const returnPct = Math.round((profit / costBasis) * 100);
-  const arbScore = Math.max(0, Math.min(100, returnPct / 3)); // +300% → 100
+
+  // Net profit selling at a given graded price, after eBay fees.
+  const netFor = (sell) => {
+    if (sell == null) return null;
+    const proceeds = sell * (1 - CONFIG.EBAY_FEE_RATE) - CONFIG.EBAY_PER_ORDER_FEE;
+    const profit = proceeds - costBasis;
+    return { sell: Math.round(sell), net: Math.round(profit), pct: Math.round((profit / costBasis) * 100) };
+  };
+
+  const grades = {
+    psa10: netFor(card.price?.psa10),
+    bgs10: netFor(card.price?.bgs10),
+    tag10: netFor(card.price?.tag10),
+  };
+  // Headline/ranking uses PSA 10 (deepest market) when present, else BGS 10.
+  const primary = grades.psa10 || grades.bgs10 || grades.tag10;
+  if (!primary) return null;
+  const primaryLabel = grades.psa10 ? 'PSA 10' : grades.bgs10 ? 'BGS 10' : 'TAG 10';
+
+  const arbScore = Math.max(0, Math.min(100, primary.pct / 3)); // +300% → 100
   const flipScore = Math.round(0.5 * combinedScore + 0.5 * arbScore);
   return {
     targetBuy: Math.round(targetBuy),
+    gradingCost: CONFIG.GRADING_COST,
     costBasis: Math.round(costBasis),
-    targetSell: Math.round(psa10),
-    profit: Math.round(profit),
-    returnPct,
+    grades,
+    primary,
+    primaryLabel,
+    returnPct: primary.pct,
     flipScore,
   };
 }
@@ -533,7 +556,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
   return (
     <div className="px-4 py-4 space-y-3">
       <div className="text-[11px] uppercase tracking-widest text-zinc-500">
-        Today's prospects · raw → PSA 10 flip upside
+        Today's prospects · raw → graded flip · net return
       </div>
       {scored.map(({ card, combinedScore, flip }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
@@ -558,8 +581,8 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
                   <div className="text-xs text-zinc-300 mt-1.5">
                     <span className="text-zinc-500">Buy</span> ${flip.targetBuy.toLocaleString()}
                     <span className="text-zinc-600 mx-1">→</span>
-                    <span className="text-zinc-500">Sell</span> ${flip.targetSell.toLocaleString()}
-                    <span className="text-zinc-600"> PSA 10</span>
+                    <span className="text-zinc-500">Sell</span> ${flip.primary.sell.toLocaleString()}
+                    <span className="text-zinc-600"> {flip.primaryLabel}</span>
                   </div>
                 ) : (
                   <div className="text-xs text-zinc-500 mt-1.5">
@@ -649,8 +672,8 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </div>
       </section>
 
-      {/* Recent market price — both raw and PSA 10 (once the refresh job has data) */}
-      {card.price && (card.price.raw != null || card.price.psa10 != null) && (
+      {/* Recent market price — raw + every graded comp we have */}
+      {card.price && (card.price.raw != null || card.price.psa10 != null || card.price.bgs10 != null) && (
         <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
           <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
             Recent market price
@@ -675,6 +698,18 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
                 {card.price.psa10 != null ? '$' + card.price.psa10.toLocaleString() : '—'}
               </span>
             </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">BGS 10</div>
+              <span className="text-xl font-bold tabular-nums">
+                {card.price.bgs10 != null ? '$' + card.price.bgs10.toLocaleString() : '—'}
+              </span>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">TAG 10</div>
+              <span className="text-xl font-bold tabular-nums text-zinc-500">
+                {card.price.tag10 != null ? '$' + card.price.tag10.toLocaleString() : 'not tracked'}
+              </span>
+            </div>
           </div>
           <div className="text-[11px] text-zinc-500 mt-2">
             {card.price.source === 'mock' ? 'Sample data (not live)' : 'SportsCardsPro'}
@@ -683,11 +718,12 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </section>
       )}
 
-      {/* Grading flip — buy raw, grade, sell as PSA 10 */}
+      {/* Grading flip — buy raw, grade with TAG, sell graded (net of real fees) */}
       {flip && (
         <section className="border border-emerald-500/30 bg-emerald-500/5 rounded-lg p-4">
           <div className="text-[11px] uppercase tracking-widest text-emerald-400 mb-2">
-            Grading flip · projected {flip.returnPct >= 0 ? '+' : ''}{flip.returnPct}%
+            Grading flip · net {flip.returnPct >= 0 ? '+' : ''}{flip.returnPct}%{' '}
+            <span className="text-zinc-500 normal-case tracking-normal">({flip.primaryLabel} ref)</span>
           </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex justify-between">
@@ -695,25 +731,42 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
               <span className="tabular-nums">${flip.targetBuy.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-400">Grading cost</span>
-              <span className="tabular-nums">${CONFIG.GRADING_COST}</span>
+              <span className="text-zinc-400">TAG grading (Basic)</span>
+              <span className="tabular-nums">${flip.gradingCost}</span>
             </div>
-            <div className="flex justify-between border-t border-zinc-800 pt-1.5">
-              <span className="text-zinc-400">Cost basis</span>
+            <div className="flex justify-between border-t border-zinc-800 pt-1.5 font-medium">
+              <span className="text-zinc-300">Cost basis</span>
               <span className="tabular-nums">${flip.costBasis.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-400">Target sell · PSA 10</span>
-              <span className="tabular-nums">${flip.targetSell.toLocaleString()}</span>
+          </div>
+          <div className="mt-3">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">
+              Net profit if sold (after {Math.round(CONFIG.EBAY_FEE_RATE * 100)}% eBay fee)
             </div>
-            <div className="flex justify-between font-semibold text-emerald-400 border-t border-zinc-800 pt-1.5">
-              <span>Projected profit</span>
-              <span className="tabular-nums">{flip.profit >= 0 ? '+' : ''}${flip.profit.toLocaleString()} ({flip.returnPct}%)</span>
+            <div className="space-y-1 text-xs">
+              {[['PSA 10', flip.grades.psa10], ['BGS 10', flip.grades.bgs10], ['TAG 10', flip.grades.tag10]].map(([label, g]) => (
+                <div key={label} className="flex justify-between items-baseline">
+                  <span className="text-zinc-400">{label}</span>
+                  {g ? (
+                    <span className="tabular-nums">
+                      ${g.sell.toLocaleString()} <span className="text-zinc-600">→</span>{' '}
+                      <span className={g.net >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                        {g.net >= 0 ? '+' : ''}${g.net.toLocaleString()} ({g.pct}%)
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-zinc-600">{label === 'TAG 10' ? 'not tracked yet' : '—'}</span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
-          <p className="text-[11px] text-zinc-500 mt-2.5 leading-relaxed">
-            Buy the raw card near the target, grade it (~${CONFIG.GRADING_COST}), and sell as a PSA 10.
-            Assumes it grades a 10 — not every card does, and grading takes weeks. Not financial advice.
+          <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
+            You grade with TAG, but TAG resale isn’t in our price source yet — PSA 10 / BGS 10 are
+            shown as comps (TAG often resells below PSA today). Net figures already subtract eBay’s
+            {' '}{Math.round(CONFIG.EBAY_FEE_RATE * 100)}% fee + ${CONFIG.EBAY_PER_ORDER_FEE.toFixed(2)} and the
+            ${flip.gradingCost} TAG fee, and assume the card grades a 10 (TAG Pristine is &lt;1% of cards).
+            Not financial advice.
           </p>
         </section>
       )}

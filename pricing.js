@@ -22,10 +22,12 @@ const mockProvider = {
     for (let i = 0; i < card.id.length; i++) h = (h * 31 + card.id.charCodeAt(i)) >>> 0;
     const factor = 0.7 + (h % 40) / 100; // 0.70–1.09 of ask, stable per card
     const raw = Math.round(ask * factor);
+    const psa10 = Math.round(raw * (1.8 + (h % 20) / 10)); // ~1.8–3.7x raw
     return {
       source: 'mock',
       priceRaw: raw,
-      pricePsa10: Math.round(raw * (1.8 + (h % 20) / 10)), // ~1.8–3.7x raw
+      pricePsa10: psa10,
+      priceBgs10: Math.round(psa10 * 1.1), // BGS 10 slightly above PSA 10
       currency: 'USD',
       sampleSize: 3 + (h % 12),
     };
@@ -50,11 +52,13 @@ const sportscardsproProvider = {
 
     const rawCents = d['loose-price'];        // ungraded
     const psaCents = d['manual-only-price'];  // PSA 10
-    if (rawCents == null && psaCents == null) return null; // no comps → keep prior
+    const bgsCents = d['bgs-10-price'];        // BGS 10
+    if (rawCents == null && psaCents == null && bgsCents == null) return null; // no comps → keep prior
     return {
       source: 'sportscardspro',
       priceRaw: rawCents != null ? Math.round(rawCents) / 100 : null,
       pricePsa10: psaCents != null ? Math.round(psaCents) / 100 : null,
+      priceBgs10: bgsCents != null ? Math.round(bgsCents) / 100 : null,
       currency: 'USD',
       sampleSize: d['sales-volume'] ?? null,
     };
