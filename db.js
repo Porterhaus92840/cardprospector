@@ -62,6 +62,7 @@ const CREATE_PRICE_TABLE_SQL = `
     price_g7     DECIMAL(12,2) NULL,
     price_g8     DECIMAL(12,2) NULL,
     price_g9     DECIMAL(12,2) NULL,
+    price_g95    DECIMAL(12,2) NULL,
     price_psa10  DECIMAL(12,2) NULL,
     price_bgs10  DECIMAL(12,2) NULL,
     currency     CHAR(3)      NOT NULL DEFAULT 'USD',
@@ -150,7 +151,7 @@ export async function initDb() {
  */
 export async function getPriceSummaries() {
   const [latest] = await pool.query(`
-    SELECT ph.card_id, ph.price_raw, ph.price_g7, ph.price_g8, ph.price_g9, ph.price_psa10, ph.price_bgs10, ph.currency, ph.source, ph.sample_size, ph.observed_on
+    SELECT ph.card_id, ph.price_raw, ph.price_g7, ph.price_g8, ph.price_g9, ph.price_g95, ph.price_psa10, ph.price_bgs10, ph.currency, ph.source, ph.sample_size, ph.observed_on
       FROM price_history ph
       JOIN (SELECT card_id, MAX(observed_on) AS mx FROM price_history GROUP BY card_id) m
         ON ph.card_id = m.card_id AND ph.observed_on = m.mx
@@ -184,6 +185,7 @@ export async function getPriceSummaries() {
       g7: num(r.price_g7),
       g8: num(r.price_g8),
       g9: num(r.price_g9),
+      g95: num(r.price_g95),
       psa10,
       bgs10,
       tag10: null, // overridden by cards.tag10_price in getCards (manual entry)
@@ -215,12 +217,12 @@ export async function getCards() {
 }
 
 /** Record (upsert) one daily price snapshot for a card (raw + graded ladder). */
-export async function recordPrice(cardId, { source, priceRaw = null, priceG7 = null, priceG8 = null, priceG9 = null, pricePsa10 = null, priceBgs10 = null, currency = 'USD', sampleSize = null, observedOn }) {
+export async function recordPrice(cardId, { source, priceRaw = null, priceG7 = null, priceG8 = null, priceG9 = null, priceG95 = null, pricePsa10 = null, priceBgs10 = null, currency = 'USD', sampleSize = null, observedOn }) {
   await pool.query(
-    `INSERT INTO price_history (card_id, source, price_raw, price_g7, price_g8, price_g9, price_psa10, price_bgs10, currency, sample_size, observed_on)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE price_raw=VALUES(price_raw), price_g7=VALUES(price_g7), price_g8=VALUES(price_g8), price_g9=VALUES(price_g9), price_psa10=VALUES(price_psa10), price_bgs10=VALUES(price_bgs10), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
-    [cardId, source, priceRaw, priceG7, priceG8, priceG9, pricePsa10, priceBgs10, currency, sampleSize, observedOn]
+    `INSERT INTO price_history (card_id, source, price_raw, price_g7, price_g8, price_g9, price_g95, price_psa10, price_bgs10, currency, sample_size, observed_on)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE price_raw=VALUES(price_raw), price_g7=VALUES(price_g7), price_g8=VALUES(price_g8), price_g9=VALUES(price_g9), price_g95=VALUES(price_g95), price_psa10=VALUES(price_psa10), price_bgs10=VALUES(price_bgs10), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
+    [cardId, source, priceRaw, priceG7, priceG8, priceG9, priceG95, pricePsa10, priceBgs10, currency, sampleSize, observedOn]
   );
 }
 

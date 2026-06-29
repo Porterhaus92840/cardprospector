@@ -29,6 +29,7 @@ const mockProvider = {
       priceG7: Math.round(raw * 0.6),
       priceG8: Math.round(raw * 0.8),
       priceG9: Math.round(psa10 * 0.4),
+      priceG95: Math.round(psa10 * 0.6),
       pricePsa10: psa10,
       priceBgs10: Math.round(psa10 * 1.1), // BGS 10 slightly above PSA 10
       currency: 'USD',
@@ -55,7 +56,7 @@ const sportscardsproProvider = {
 
     // Field → grade mapping (verified against live products):
     //  loose=raw, cib=Grade 7, new=Grade 8, graded=Grade 9,
-    //  manual-only=PSA 10, bgs-10=BGS 10.
+    //  box-only=Grade 9.5, manual-only=PSA 10, bgs-10=BGS 10.
     const c = (k) => (d[k] != null ? Math.round(d[k]) / 100 : null);
     const rawV = c('loose-price');
     if (rawV == null && c('manual-only-price') == null && c('bgs-10-price') == null) return null;
@@ -65,6 +66,7 @@ const sportscardsproProvider = {
       priceG7: c('cib-price'),
       priceG8: c('new-price'),
       priceG9: c('graded-price'),
+      priceG95: c('box-only-price'),
       pricePsa10: c('manual-only-price'),
       priceBgs10: c('bgs-10-price'),
       currency: 'USD',

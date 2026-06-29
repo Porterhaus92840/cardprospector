@@ -381,6 +381,13 @@ function computeCombinedScore(card) {
   return { playerSignal, scarcity, combinedScore: normalized };
 }
 
+// Sell-ladder order, lowest grade → highest. Shared by the flip math and the
+// dossier table so "best grade" highlighting stays in sync.
+const GRADE_ROWS = [
+  ['PSA 7', 'g7'], ['PSA 8', 'g8'], ['PSA 9', 'g9'], ['Grade 9.5', 'g95'],
+  ['PSA 10', 'psa10'], ['BGS 10', 'bgs10'], ['TAG 10', 'tag10'],
+];
+
 /* ----------------------------------------------------------------------------
    GRADING FLIP — buy the raw card (at a discount), grade it (TAG), sell graded.
    All costs are real: TAG grading fee + eBay final value fee + per-order fee.
@@ -407,6 +414,7 @@ function computeFlip(card, combinedScore) {
     g7: netFor(card.price?.g7),
     g8: netFor(card.price?.g8),
     g9: netFor(card.price?.g9),
+    g95: netFor(card.price?.g95),
     psa10: netFor(card.price?.psa10),
     bgs10: netFor(card.price?.bgs10),
     tag10: netFor(card.price?.tag10),
@@ -415,6 +423,13 @@ function computeFlip(card, combinedScore) {
   const primary = grades.psa10 || grades.bgs10 || grades.tag10;
   if (!primary) return null;
   const primaryLabel = grades.psa10 ? 'PSA 10' : grades.bgs10 ? 'BGS 10' : 'TAG 10';
+
+  // Best net-return grade — the optimal sell target to highlight.
+  let bestLabel = null, bestNet = -Infinity;
+  for (const [label, key] of GRADE_ROWS) {
+    const g = grades[key];
+    if (g && g.net > bestNet) { bestNet = g.net; bestLabel = label; }
+  }
 
   const arbScore = Math.max(0, Math.min(100, primary.pct / 3)); // +300% → 100
   const flipScore = Math.round(0.5 * combinedScore + 0.5 * arbScore);
@@ -425,6 +440,7 @@ function computeFlip(card, combinedScore) {
     grades,
     primary,
     primaryLabel,
+    bestLabel,
     returnPct: primary.pct,
     flipScore,
   };
@@ -719,21 +735,27 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
             <div className="text-[10px] uppercase tracking-wider text-zinc-500">Grade</div>
             <div className="text-[10px] uppercase tracking-wider text-zinc-500 text-right">Sells for</div>
             <div className="text-[10px] uppercase tracking-wider text-zinc-500 text-right">Net (after fees)</div>
-            {[['PSA 7', flip.grades.g7], ['PSA 8', flip.grades.g8], ['PSA 9', flip.grades.g9], ['PSA 10', flip.grades.psa10], ['BGS 10', flip.grades.bgs10], ['TAG 10', flip.grades.tag10]].map(([label, g]) => (
-              <React.Fragment key={label}>
-                <div className="text-zinc-400">{label}</div>
-                <div className="text-right tabular-nums">{g ? '$' + g.sell.toLocaleString() : '—'}</div>
-                <div className="text-right tabular-nums">
-                  {g ? (
-                    <span className={g.net >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                      {g.net >= 0 ? '+' : ''}${g.net.toLocaleString()} ({g.pct}%)
-                    </span>
-                  ) : (
-                    <span className="text-zinc-600">{label === 'TAG 10' ? 'enter price' : '—'}</span>
-                  )}
-                </div>
-              </React.Fragment>
-            ))}
+            {GRADE_ROWS.map(([label, key]) => {
+              const g = flip.grades[key];
+              const isBest = label === flip.bestLabel;
+              return (
+                <React.Fragment key={label}>
+                  <div className={isBest ? 'text-emerald-300 font-semibold' : 'text-zinc-400'}>
+                    {label}{isBest && <span className="ml-1 text-[9px] uppercase tracking-wider text-emerald-400">★ best</span>}
+                  </div>
+                  <div className={`text-right tabular-nums ${isBest ? 'text-emerald-300' : ''}`}>{g ? '$' + g.sell.toLocaleString() : '—'}</div>
+                  <div className="text-right tabular-nums">
+                    {g ? (
+                      <span className={`${isBest ? 'font-semibold ' : ''}${g.net >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {g.net >= 0 ? '+' : ''}${g.net.toLocaleString()} ({g.pct}%)
+                      </span>
+                    ) : (
+                      <span className="text-zinc-600">{label === 'TAG 10' ? 'enter price' : '—'}</span>
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            })}
           </div>
           <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
             Net = sale price − {Math.round(CONFIG.EBAY_FEE_RATE * 100)}% eBay fee − ${CONFIG.EBAY_PER_ORDER_FEE.toFixed(2)} −
