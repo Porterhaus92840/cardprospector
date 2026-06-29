@@ -594,7 +594,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
               <div className="min-w-0">
                 <div className="font-semibold truncate">{card.player}</div>
                 <div className="text-xs text-zinc-400 truncate">
-                  {card.set} · {variant?.label}
+                  {card.set}{card.cardNumber ? ` · ${card.cardNumber}` : ''}
                 </div>
                 {flip ? (
                   <div className="text-xs text-zinc-300 mt-1.5">
@@ -635,7 +635,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
   const { playerSignal, scarcity, combinedScore } = computeCombinedScore(card);
   const comp = findBestComp(card.traits, card.sport);
   const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
-  const ebayUrl = buildEbayLink(`${card.player} ${card.set} ${variant?.label || ''}`);
+  const ebayUrl = buildEbayLink(`${card.player} ${card.set} ${card.cardNumber || ''}`.trim());
   const flip = computeFlip(card, combinedScore);
 
   return (
@@ -648,7 +648,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-1">Dossier</div>
         <h2 className="text-xl font-bold">{card.player}</h2>
         <div className="text-sm text-zinc-400">{card.team} · {card.position}</div>
-        <div className="text-xs text-zinc-500 mt-1">{card.set} · {variant?.label}</div>
+        <div className="text-xs text-zinc-500 mt-1">{card.set} · {variant?.label}{card.cardNumber ? ` · ${card.cardNumber}` : ''}</div>
       </div>
 
       <div className="flex items-center gap-2">

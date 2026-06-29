@@ -37,6 +37,7 @@ const CREATE_TABLE_SQL = `
     team                 VARCHAR(64),
     position             VARCHAR(16),
     card_set             VARCHAR(160),
+    card_number          VARCHAR(32),
     variant_id           VARCHAR(48),
     ask_price            INT,
     sportscardspro_id    VARCHAR(16)  NULL,
@@ -85,6 +86,7 @@ function rowToCard(row) {
     team: row.team,
     position: row.position,
     set: row.card_set,
+    cardNumber: row.card_number,
     variantId: row.variant_id,
     askPrice: row.ask_price,
     sportscardsproId: row.sportscardspro_id,
@@ -120,12 +122,12 @@ export async function initDb() {
       const hasPop = c.pop ? 1 : 0;
       await conn.query(
         `INSERT INTO cards
-          (id, sport, player, team, position, card_set, variant_id, ask_price,
+          (id, sport, player, team, position, card_set, card_number, variant_id, ask_price,
            sportscardspro_id, traits, bear_case, pop_psa10, pop_psa10_30d_prior,
            pop_listings_active, has_pop, sort_order)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
-          c.id, c.sport, c.player, c.team, c.position, c.set, c.variantId, c.askPrice,
+          c.id, c.sport, c.player, c.team, c.position, c.set, c.cardNumber ?? null, c.variantId, c.askPrice,
           c.sportscardsproId ?? null,
           JSON.stringify(c.traits), c.bearCase,
           c.pop ? c.pop.psa10 : null,
