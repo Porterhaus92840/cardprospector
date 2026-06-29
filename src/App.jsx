@@ -914,7 +914,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
       {/* Bear case */}
       <section className="border border-amber-500/30 bg-amber-500/5 rounded-lg p-4">
         <div className="text-[11px] uppercase tracking-widest text-amber-400 mb-2">
-          What invalidates this thesis
+          Warning signs to watch
         </div>
         <div className="text-xs text-zinc-200 leading-relaxed">{card.bearCase}</div>
       </section>
@@ -968,8 +968,8 @@ function LearnTab({ sport }) {
           combines that with real scarcity data to surface cards with credible upside.
         </p>
         <p className="text-sm text-zinc-300 leading-relaxed mt-2">
-          The match isn't a prediction. It's a hypothesis with a measurable bear case.
-          Every dossier names what would invalidate the comp so you can monitor it.
+          The match isn't a prediction — it's an educated theory. And for every card we spell out
+          exactly what would have to go wrong for it to miss, so you know what to watch for.
         </p>
       </section>
 
