@@ -18,11 +18,15 @@ import { fileURLToPath } from 'url';
 import {
   initDb, getCards, recordPop, setTagPrice,
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
+  setStripeCustomer, setSubscription,
 } from './db.js';
 import {
   hashPassword, verifyPassword, signToken, verifyToken,
   cookieOptions, validCredentials, publicUser, SESSION_COOKIE,
 } from './auth.js';
+import {
+  getStripe, billingEnabled, APP_URL, planToPrice, priceToTier, TRIAL_DAYS,
+} from './billing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -36,6 +40,36 @@ app.get('/healthz', (req, res) => {
 
 // Gzip responses
 app.use(compression());
+
+// Stripe webhook — MUST come before express.json(): signature verification
+// needs the raw request body. Source of truth for subscription entitlement.
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const stripe = getStripe();
+  if (!stripe) return res.status(503).end();
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  try {
+    if (event.type.startsWith('customer.subscription.')) {
+      const sub = event.data.object;
+      const priceId = sub.items?.data?.[0]?.price?.id;
+      const deleted = event.type === 'customer.subscription.deleted';
+      const entitled = !deleted && (sub.status === 'active' || sub.status === 'trialing');
+      await setSubscription(sub.customer, {
+        tier: entitled ? priceToTier(priceId) : 'free',
+        status: deleted ? 'canceled' : sub.status,
+        trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
+      });
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error('[stripe] webhook handler failed:', err.message);
+    res.status(500).end();
+  }
+});
 
 // Parse JSON request bodies + cookies (for auth sessions)
 app.use(express.json());
@@ -215,6 +249,61 @@ app.post('/api/watchlist', requireAuth(async (req, res, user) => {
   } catch (err) {
     console.error('[api] watchlist update failed:', err.message);
     res.status(500).json({ error: 'Could not update watchlist' });
+  }
+}));
+
+/* ============================================================================
+   BILLING — Stripe Checkout + Customer Portal
+   ============================================================================ */
+
+// Whether billing is configured (so the client only shows upgrade UI when live).
+app.get('/api/billing/config', (req, res) => {
+  res.json({ enabled: billingEnabled(), trialDays: TRIAL_DAYS });
+});
+
+// Start a subscription checkout (with the 7-day trial). Returns a redirect URL.
+app.post('/api/billing/checkout', requireAuth(async (req, res, user) => {
+  const stripe = getStripe();
+  if (!stripe) return res.status(503).json({ error: 'Billing is not configured yet.' });
+  const price = planToPrice((req.body || {}).plan);
+  if (!price) return res.status(400).json({ error: 'Unknown plan' });
+  try {
+    let customerId = user.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({ email: user.email, metadata: { userId: String(user.id) } });
+      customerId = customer.id;
+      await setStripeCustomer(user.id, customerId);
+    }
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      line_items: [{ price, quantity: 1 }],
+      subscription_data: { trial_period_days: TRIAL_DAYS },
+      allow_promotion_codes: true,
+      success_url: `${APP_URL()}/?upgraded=1`,
+      cancel_url: `${APP_URL()}/?checkout=cancelled`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('[stripe] checkout failed:', err.message);
+    res.status(500).json({ error: 'Could not start checkout' });
+  }
+}));
+
+// Open the Stripe Customer Portal (manage/cancel subscription, update card).
+app.post('/api/billing/portal', requireAuth(async (req, res, user) => {
+  const stripe = getStripe();
+  if (!stripe) return res.status(503).json({ error: 'Billing is not configured yet.' });
+  if (!user.stripe_customer_id) return res.status(400).json({ error: 'No subscription to manage yet.' });
+  try {
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.stripe_customer_id,
+      return_url: APP_URL(),
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('[stripe] portal failed:', err.message);
+    res.status(500).json({ error: 'Could not open billing portal' });
   }
 }));
 

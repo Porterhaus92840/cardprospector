@@ -1465,6 +1465,62 @@ function AuthModal({ onClose, onAuthed }) {
   );
 }
 
+function UpgradeModal({ onClose }) {
+  const [busy, setBusy] = useState(null);
+  const go = async (plan) => {
+    setBusy(plan);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.url) window.location.href = data.url;
+      else { setBusy(null); window.alert(data.error || 'Could not start checkout.'); }
+    } catch { setBusy(null); window.alert('Could not reach the server.'); }
+  };
+
+  const Tier = ({ name, monthly, annual, planKey, features, accent }) => (
+    <div className={`border rounded-xl p-4 ${accent}`}>
+      <div className="flex items-baseline justify-between">
+        <div className="font-bold">{name}</div>
+        <div><span className="text-xl font-bold">${monthly}</span><span className="text-zinc-400 text-sm">/mo</span></div>
+      </div>
+      <ul className="mt-2 space-y-1 text-xs text-zinc-300">
+        {features.map((f, i) => <li key={i}>• {f}</li>)}
+      </ul>
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <button onClick={() => go(`${planKey}_monthly`)} disabled={busy} className="bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2 text-sm">
+          {busy === `${planKey}_monthly` ? '…' : 'Start trial'}
+        </button>
+        <button onClick={() => go(`${planKey}_annual`)} disabled={busy} className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 rounded py-2 text-sm">
+          {busy === `${planKey}_annual` ? '…' : `$${annual}/yr`}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-zinc-950/90 z-50 overflow-y-auto p-4" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md mx-auto my-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">Start your 7-day free trial</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
+        </div>
+        <p className="text-xs text-zinc-400 mb-4">Free for 7 days, then billed monthly (or yearly — ~2 months free). Cancel anytime.</p>
+        <div className="space-y-3">
+          <Tier name="Prospector Pro" monthly="7.99" annual="79" planKey="pro" accent="border-emerald-500/40 bg-emerald-500/5"
+            features={['Full dossiers + buy/sell targets', 'Hold horizon', 'Private watchlist', 'Add your own cards']} />
+          <Tier name="Elite" monthly="19.99" annual="199" planKey="elite" accent="border-orange-500/40 bg-orange-500/5"
+            features={['Everything in Pro', 'Price & pop alerts', 'Portfolio P&L', 'Priority on your submitted cards', 'Early access']} />
+        </div>
+        <p className="text-[10px] text-zinc-500 text-center mt-4">Secure checkout by Stripe · for entertainment only, not financial advice.</p>
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================================
    APP ROOT
    ============================================================================ */
@@ -1485,6 +1541,8 @@ export default function CardProspector() {
   const [user, setUser] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [watchlist, setWatchlist] = useState([]);
+  const [billingEnabled, setBillingEnabled] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   const refetchCards = useCallback(async () => {
     try {
@@ -1506,18 +1564,30 @@ export default function CardProspector() {
     } catch { setWatchlist([]); }
   }, []);
 
+  const refetchUser = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+      setUser(data.user || null);
+    } catch { setUser(null); }
+  }, []);
+
   useEffect(() => { saveState(state); }, [state]);
   useEffect(() => { refetchCards(); }, [refetchCards]);
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/auth/me');
-        const data = await res.json();
-        setUser(data.user || null);
-      } catch { setUser(null); }
-    })();
-  }, []);
+  useEffect(() => { refetchUser(); }, [refetchUser]);
   useEffect(() => { if (user) refetchWatchlist(); else setWatchlist([]); }, [user, refetchWatchlist]);
+  useEffect(() => {
+    fetch('/api/billing/config').then((r) => r.json()).then((d) => setBillingEnabled(Boolean(d.enabled))).catch(() => {});
+  }, []);
+  // Returning from Stripe Checkout: refresh entitlement (the webhook may lag a moment).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('upgraded') === '1') {
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(refetchUser, 1500);
+      setTimeout(refetchUser, 5000);
+    }
+  }, [refetchUser]);
 
   const cards = useMemo(
     () => allCards.filter((c) => c.sport === sport),
@@ -1586,6 +1656,14 @@ export default function CardProspector() {
     setUser(null);
     setWatchlist([]);
   };
+  const manageBilling = async () => {
+    try {
+      const res = await fetch('/api/billing/portal', { method: 'POST' });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+      else window.alert(data.error || 'Could not open billing.');
+    } catch { window.alert('Could not reach the server.'); }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
@@ -1593,9 +1671,15 @@ export default function CardProspector() {
       <div className="px-4 py-1.5 bg-zinc-900/50 border-b border-zinc-800 flex justify-end items-center text-xs">
         {user ? (
           <div className="flex items-center gap-2 text-zinc-400">
-            <span className="truncate max-w-[180px]">{user.email}</span>
+            <span className="truncate max-w-[120px]">{user.email}</span>
+            <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider border ${user.tier === 'elite' ? 'bg-orange-500/20 text-orange-300 border-orange-500/40' : user.tier === 'pro' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' : 'bg-zinc-700/40 text-zinc-400 border-zinc-600/40'}`}>
+              {user.tier}
+            </span>
+            {billingEnabled && (user.tier === 'free'
+              ? <button onClick={() => setUpgradeOpen(true)} className="text-orange-400 hover:text-orange-300 font-medium">Upgrade</button>
+              : <button onClick={manageBilling} className="text-zinc-300 hover:text-white">Manage</button>)}
             <span className="text-zinc-600">·</span>
-            <button onClick={signOut} className="text-orange-400 hover:text-orange-300">Sign out</button>
+            <button onClick={signOut} className="text-zinc-400 hover:text-zinc-200">Sign out</button>
           </div>
         ) : (
           <button onClick={() => setAuthOpen(true)} className="text-orange-400 hover:text-orange-300 font-medium">
@@ -1651,6 +1735,7 @@ export default function CardProspector() {
       )}
 
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
+      {upgradeOpen && <UpgradeModal onClose={() => setUpgradeOpen(false)} />}
     </div>
   );
 }

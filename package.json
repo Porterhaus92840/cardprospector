@@ -19,7 +19,8 @@
     "dotenv": "^16.4.5",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "cookie-parser": "^1.4.6"
+    "cookie-parser": "^1.4.6",
+    "stripe": "^16.12.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

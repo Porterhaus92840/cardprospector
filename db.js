@@ -370,6 +370,19 @@ export async function setWatch(userId, cardId, watched) {
   return watched;
 }
 
+/** Link a user to their Stripe customer. */
+export async function setStripeCustomer(userId, customerId) {
+  await pool.query('UPDATE users SET stripe_customer_id = ? WHERE id = ?', [customerId, userId]);
+}
+
+/** Update a user's tier/status from a Stripe subscription event (by customer). */
+export async function setSubscription(stripeCustomerId, { tier, status, trialEnd }) {
+  await pool.query(
+    'UPDATE users SET tier = ?, subscription_status = ?, trial_end = ? WHERE stripe_customer_id = ?',
+    [tier, status, trialEnd ?? null, stripeCustomerId]
+  );
+}
+
 /**
  * Record (upsert) today's PSA population snapshot for a card. The admin enters
  * only current numbers; 30-day velocity is derived from accumulated snapshots.
