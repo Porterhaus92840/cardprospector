@@ -76,6 +76,29 @@ const CREATE_PRICE_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 
+// PSA population snapshots — one row per card per day. The full grade breakdown
+// plus the PSA-reported total; lower grades are derived (total − 10/9/8/7).
+// 30-day velocity is computed from these snapshots, so admins only ever enter
+// today's numbers (PSA's pop report has no historical data).
+const CREATE_POP_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS pop_history (
+    id               BIGINT      AUTO_INCREMENT PRIMARY KEY,
+    card_id          VARCHAR(64) NOT NULL,
+    observed_on      DATE        NOT NULL,
+    total            INT         NULL,
+    psa10            INT         NULL,
+    psa9             INT         NULL,
+    psa8             INT         NULL,
+    psa7             INT         NULL,
+    listings_active  INT         NULL,
+    source           VARCHAR(32) NOT NULL DEFAULT 'admin',
+    created_at       TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_pop_card_day (card_id, observed_on),
+    KEY idx_pop_card_observed (card_id, observed_on),
+    CONSTRAINT fk_pop_card FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
 /** Map a DB row to the shape the frontend already expects. */
 function rowToCard(row) {
   const traits = typeof row.traits === 'string' ? JSON.parse(row.traits) : row.traits;
@@ -91,13 +114,7 @@ function rowToCard(row) {
     askPrice: row.ask_price,
     sportscardsproId: row.sportscardspro_id,
     traits,
-    pop: row.has_pop
-      ? {
-          psa10: row.pop_psa10,
-          psa10_30d_prior: row.pop_psa10_30d_prior,
-          listings_active: row.pop_listings_active,
-        }
-      : null,
+    pop: null, // populated from pop_history in getCards
     bearCase: row.bear_case,
   };
 }
@@ -106,6 +123,7 @@ function rowToCard(row) {
 export async function initDb() {
   await pool.query(CREATE_TABLE_SQL);
   await pool.query(CREATE_PRICE_TABLE_SQL);
+  await pool.query(CREATE_POP_TABLE_SQL);
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -201,10 +219,60 @@ export async function getPriceSummaries() {
   return out;
 }
 
-/** All cards, in display order, mapped to the frontend card shape (+ price). */
+/**
+ * Per-card PSA population summary from pop_history: latest snapshot, derived
+ * lower-grade count, gem rate (PSA 10 / total), and 30-day PSA-10 velocity
+ * computed from our own snapshots. Keyed by card_id.
+ */
+export async function getPopSummaries() {
+  const [latest] = await pool.query(`
+    SELECT ph.card_id, ph.total, ph.psa10, ph.psa9, ph.psa8, ph.psa7, ph.listings_active, ph.observed_on
+      FROM pop_history ph
+      JOIN (SELECT card_id, MAX(observed_on) AS mx FROM pop_history GROUP BY card_id) m
+        ON ph.card_id = m.card_id AND ph.observed_on = m.mx
+  `);
+  const [prior] = await pool.query(`
+    SELECT ph.card_id, ph.psa10
+      FROM pop_history ph
+      JOIN (
+        SELECT card_id, MAX(observed_on) AS mx
+          FROM pop_history
+         WHERE observed_on <= (CURRENT_DATE - INTERVAL 30 DAY)
+         GROUP BY card_id
+      ) m ON ph.card_id = m.card_id AND ph.observed_on = m.mx
+  `);
+
+  const priorMap = {};
+  for (const r of prior) if (r.psa10 != null) priorMap[r.card_id] = Number(r.psa10);
+
+  const out = {};
+  for (const r of latest) {
+    if (r.psa10 == null && r.total == null) continue;
+    const graded = ['psa10', 'psa9', 'psa8', 'psa7'].reduce((s, k) => s + (r[k] || 0), 0);
+    const total = r.total != null ? Number(r.total) : null;
+    const psa10 = r.psa10 != null ? Number(r.psa10) : null;
+    const p30 = priorMap[r.card_id];
+    const asOf = r.observed_on instanceof Date ? r.observed_on.toISOString().slice(0, 10) : String(r.observed_on);
+    out[r.card_id] = {
+      total,
+      psa10,
+      psa9: r.psa9 != null ? Number(r.psa9) : null,
+      psa8: r.psa8 != null ? Number(r.psa8) : null,
+      psa7: r.psa7 != null ? Number(r.psa7) : null,
+      lower: total != null ? Math.max(0, total - graded) : null,
+      listingsActive: r.listings_active != null ? Number(r.listings_active) : null,
+      gemRate: total > 0 && psa10 != null ? psa10 / total : null,
+      change30dPsa10: psa10 != null && p30 ? Math.round(((psa10 - p30) / p30) * 1000) / 10 : null,
+      asOf,
+    };
+  }
+  return out;
+}
+
+/** All cards, in display order, mapped to the frontend card shape (+ price, pop). */
 export async function getCards() {
   const [rows] = await pool.query('SELECT * FROM cards ORDER BY sort_order ASC, player ASC');
-  const prices = await getPriceSummaries();
+  const [prices, pops] = await Promise.all([getPriceSummaries(), getPopSummaries()]);
   return rows.map((r) => {
     const card = rowToCard(r);
     const tag = r.tag10_price != null ? Number(r.tag10_price) : null;
@@ -212,9 +280,9 @@ export async function getCards() {
     if (price) {
       price.tag10 = tag; // manual TAG price from the cards table
     } else if (tag != null) {
-      price = { raw: null, g7: null, g8: null, g9: null, psa10: null, bgs10: null, tag10: tag, currency: 'USD', source: 'manual', sampleSize: null, asOf: null, change30dRaw: null };
+      price = { raw: null, g7: null, g8: null, g9: null, g95: null, psa10: null, bgs10: null, tag10: tag, currency: 'USD', source: 'manual', sampleSize: null, asOf: null, change30dRaw: null };
     }
-    return { ...card, price };
+    return { ...card, price, pop: pops[r.id] || null };
   });
 }
 
@@ -235,18 +303,20 @@ export async function setTagPrice(cardId, price) {
 }
 
 /**
- * Upsert pop data for one card. Returns true if a card matched.
- * Pass nulls to clear pop (reverts the card to "Player signal only").
+ * Record (upsert) today's PSA population snapshot for a card. The admin enters
+ * only current numbers; 30-day velocity is derived from accumulated snapshots.
+ * Returns true if the card exists.
  */
-export async function setPop(id, { psa10, psa10_30d_prior, listings_active }) {
-  const hasPop = psa10 == null && psa10_30d_prior == null && listings_active == null ? 0 : 1;
-  const [result] = await pool.query(
-    `UPDATE cards
-        SET pop_psa10 = ?, pop_psa10_30d_prior = ?, pop_listings_active = ?, has_pop = ?
-      WHERE id = ?`,
-    [psa10 ?? null, psa10_30d_prior ?? null, listings_active ?? null, hasPop, id]
+export async function recordPop(cardId, { total = null, psa10 = null, psa9 = null, psa8 = null, psa7 = null, listings_active = null, observedOn }) {
+  const [[card]] = await pool.query('SELECT id FROM cards WHERE id = ?', [cardId]);
+  if (!card) return false;
+  await pool.query(
+    `INSERT INTO pop_history (card_id, observed_on, total, psa10, psa9, psa8, psa7, listings_active)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE total=VALUES(total), psa10=VALUES(psa10), psa9=VALUES(psa9), psa8=VALUES(psa8), psa7=VALUES(psa7), listings_active=VALUES(listings_active)`,
+    [cardId, observedOn, total, psa10, psa9, psa8, psa7, listings_active]
   );
-  return result.affectedRows > 0;
+  return true;
 }
 
 export { pool };

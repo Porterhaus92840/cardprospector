@@ -14,7 +14,7 @@ import express from 'express';
 import compression from 'compression';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, getCards, setPop, setTagPrice } from './db.js';
+import { initDb, getCards, recordPop, setTagPrice } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -59,8 +59,9 @@ app.post('/api/admin/verify', (req, res) => {
   res.json({ ok: checkAdmin(req) });
 });
 
-// Upsert pop data for one card. Persists to MySQL — survives refresh,
-// browser changes, and deploys, and is shared across all visitors.
+// Record today's PSA population snapshot for a card (full grade breakdown +
+// total). 30-day velocity is derived from snapshots, so no historical input.
+// Persists to MySQL — shared across all visitors, survives deploys.
 app.post('/api/admin/pop', async (req, res) => {
   if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -75,13 +76,23 @@ app.post('/api/admin/pop', async (req, res) => {
     return Number.isFinite(n) && n >= 0 ? n : null;
   };
   const pop = {
+    total: toIntOrNull(req.body.total),
     psa10: toIntOrNull(req.body.psa10),
-    psa10_30d_prior: toIntOrNull(req.body.psa10_30d_prior),
+    psa9: toIntOrNull(req.body.psa9),
+    psa8: toIntOrNull(req.body.psa8),
+    psa7: toIntOrNull(req.body.psa7),
     listings_active: toIntOrNull(req.body.listings_active),
+    observedOn: new Date().toISOString().slice(0, 10),
   };
 
+  // Sanity: the entered grades can't exceed the PSA total.
+  const graded = (pop.psa10 || 0) + (pop.psa9 || 0) + (pop.psa8 || 0) + (pop.psa7 || 0);
+  if (pop.total != null && graded > pop.total) {
+    return res.status(400).json({ error: `Entered grades (${graded}) exceed total (${pop.total}).` });
+  }
+
   try {
-    const matched = await setPop(id, pop);
+    const matched = await recordPop(id, pop);
     if (!matched) return res.status(404).json({ error: 'Unknown card id' });
     res.json({ ok: true, id, pop });
   } catch (err) {

@@ -349,24 +349,23 @@ function computeScarcityMultiplier(card) {
   if (!card.pop) {
     return { multiplier: ladderRarity, hasRealData: false, popVelocity: null };
   }
-  // Pop velocity: change in PSA10 pop over the last 30 days.
-  // Slower pop growth = stronger scarcity signal (less supply entering market).
-  const popDelta = card.pop.psa10 - card.pop.psa10_30d_prior;
-  const popGrowthRate = card.pop.psa10_30d_prior > 0
-    ? popDelta / card.pop.psa10_30d_prior
-    : 0;
-  // Velocity adjustment: -0.15 to +0.15 on the base rarity multiplier.
-  // High growth (lots of new slabs) compresses the multiplier; low growth amplifies it.
+  // 30-day PSA-10 pop growth (percent), derived from our own snapshots.
+  // Null until there's a snapshot ~30 days old → no velocity adjustment yet.
+  // Slower growth = scarcer (less new supply); fast growth compresses the premium.
+  const velPct = card.pop.change30dPsa10;
   let velocityAdj = 0;
-  if (popGrowthRate < 0.05) velocityAdj = 0.15;       // <5% growth in 30d = scarce
-  else if (popGrowthRate < 0.10) velocityAdj = 0.05;
-  else if (popGrowthRate < 0.20) velocityAdj = -0.05;
-  else velocityAdj = -0.15;                            // >20% growth = flood
+  if (velPct != null) {
+    if (velPct < 5) velocityAdj = 0.15;
+    else if (velPct < 10) velocityAdj = 0.05;
+    else if (velPct < 20) velocityAdj = -0.05;
+    else velocityAdj = -0.15;
+  }
   return {
     multiplier: ladderRarity + velocityAdj,
     hasRealData: true,
-    popVelocity: popGrowthRate,
-    popDelta,
+    popVelocity: velPct, // percent, or null while still accumulating snapshots
+    gemRate: card.pop.gemRate,
+    total: card.pop.total,
   };
 }
 
@@ -687,7 +686,9 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
           <p className="text-xs text-zinc-400 leading-relaxed mt-0.5">
             Starts from this parallel’s base rarity ({variant?.label}) and{' '}
             {scarcity.hasRealData
-              ? `adjusts for PSA-10 pop velocity (${(scarcity.popVelocity * 100).toFixed(1)}% growth over 30 days — slower growth = scarcer).`
+              ? scarcity.popVelocity != null
+                ? `adjusts for PSA-10 pop velocity (${scarcity.popVelocity >= 0 ? '+' : ''}${scarcity.popVelocity}% over 30 days — slower growth = scarcer).`
+                : 'will adjust for PSA-10 pop velocity once ~30 days of pop snapshots accumulate (base rarity for now).'
               : 'would adjust for PSA-10 pop velocity once pop data is entered (none yet, so base rarity only).'}
           </p>
         </div>
@@ -805,26 +806,46 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </div>
         {scarcity.hasRealData ? (
           <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between"><span className="text-zinc-400">PSA 10 pop</span><span className="tabular-nums">{card.pop.psa10}</span></div>
-            <div className="flex justify-between"><span className="text-zinc-400">Pop 30d ago</span><span className="tabular-nums">{card.pop.psa10_30d_prior}</span></div>
+            {card.pop.total != null && (
+              <div className="flex justify-between"><span className="text-zinc-400">Total PSA graded</span><span className="tabular-nums">{card.pop.total.toLocaleString()}</span></div>
+            )}
+            <div className="flex justify-between"><span className="text-zinc-400">PSA 10</span><span className="tabular-nums">{card.pop.psa10 != null ? card.pop.psa10.toLocaleString() : '—'}</span></div>
+            {card.pop.gemRate != null && (
+              <div className="flex justify-between">
+                <span className="text-zinc-400">PSA 10 rate (real gem rate)</span>
+                <span className="tabular-nums text-orange-400">{(card.pop.gemRate * 100).toFixed(1)}%</span>
+              </div>
+            )}
+            {(card.pop.psa9 != null || card.pop.psa8 != null || card.pop.psa7 != null) && (
+              <div className="flex justify-between"><span className="text-zinc-400">PSA 9 / 8 / 7</span><span className="tabular-nums">{card.pop.psa9 ?? '—'} / {card.pop.psa8 ?? '—'} / {card.pop.psa7 ?? '—'}</span></div>
+            )}
+            {card.pop.lower != null && (
+              <div className="flex justify-between"><span className="text-zinc-400">Lower / other</span><span className="tabular-nums">{card.pop.lower.toLocaleString()}</span></div>
+            )}
             <div className="flex justify-between">
-              <span className="text-zinc-400">30d growth</span>
-              <span className={`tabular-nums ${scarcity.popVelocity < 0.10 ? 'text-orange-400' : 'text-zinc-500'}`}>
-                {(scarcity.popVelocity * 100).toFixed(1)}%
+              <span className="text-zinc-400">PSA 10 growth · 30d</span>
+              <span className="tabular-nums text-zinc-300">
+                {scarcity.popVelocity != null ? `${scarcity.popVelocity >= 0 ? '+' : ''}${scarcity.popVelocity}%` : 'tracking…'}
               </span>
             </div>
-            <div className="flex justify-between"><span className="text-zinc-400">Active listings</span><span className="tabular-nums">{card.pop.listings_active}</span></div>
+            {card.pop.listingsActive != null && (
+              <div className="flex justify-between"><span className="text-zinc-400">Active eBay listings</span><span className="tabular-nums">{card.pop.listingsActive}</span></div>
+            )}
             <div className="mt-3 text-zinc-300 leading-relaxed">
-              {scarcity.popVelocity < 0.05 && "Pop is barely growing. Limited new supply hitting the market — scarcity premium is real and durable."}
-              {scarcity.popVelocity >= 0.05 && scarcity.popVelocity < 0.20 && "Moderate pop growth. Supply is increasing but at a manageable pace; scarcity edge intact."}
-              {scarcity.popVelocity >= 0.20 && "Pop is growing fast. New supply is flooding in — scarcity premium is compressing. Wait for stabilization or look to a higher tier."}
+              {scarcity.popVelocity == null
+                ? `Pop captured ${card.pop.asOf}. The 30-day velocity fills in once we have a snapshot ~30 days old — re-enter the pop periodically to build it.`
+                : scarcity.popVelocity < 5
+                ? 'PSA 10 pop is barely growing — limited new supply, scarcity premium is real and durable.'
+                : scarcity.popVelocity < 20
+                ? 'Moderate PSA 10 pop growth — supply rising at a manageable pace; scarcity edge intact.'
+                : 'PSA 10 pop is growing fast — new supply flooding in, scarcity premium compressing. Wait for it to stabilize or look to a higher tier.'}
             </div>
           </div>
         ) : (
           <div className="text-xs text-zinc-400 leading-relaxed">
             No pop data yet for this card — scoring is based on player signal and base
-            parallel rarity only. Combined score is a lower-confidence estimate. Real pop
-            data will refine this.
+            parallel rarity only. Combined score is a lower-confidence estimate. Enter the
+            PSA pop report via the admin panel to refine this.
           </div>
         )}
       </section>
@@ -1064,8 +1085,11 @@ function PortfolioTab({ portfolio, allCards, onRemove }) {
 
 function AdminPanel({ cards, adminToken, onSaved, onClose }) {
   const [selectedCardId, setSelectedCardId] = useState(cards[0]?.id || '');
+  const [total, setTotal] = useState('');
   const [psa10, setPsa10] = useState('');
-  const [psa10Prior, setPsa10Prior] = useState('');
+  const [psa9, setPsa9] = useState('');
+  const [psa8, setPsa8] = useState('');
+  const [psa7, setPsa7] = useState('');
   const [listings, setListings] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1083,8 +1107,11 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
         headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
         body: JSON.stringify({
           id: selectedCardId,
+          total,
           psa10,
-          psa10_30d_prior: psa10Prior,
+          psa9,
+          psa8,
+          psa7,
           listings_active: listings,
         }),
       });
@@ -1092,9 +1119,8 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
       if (!res.ok) {
         setMsg({ ok: false, text: data.error || `Save failed (${res.status})` });
       } else {
-        setMsg({ ok: true, text: 'Saved to the database.' });
-        setPsa10(''); setPsa10Prior(''); setListings('');
-        onSaved();
+        setMsg({ ok: true, text: 'Pop snapshot saved.' });
+        onSaved(); // refetch re-prefills the fields with the saved values
       }
     } catch {
       setMsg({ ok: false, text: 'Could not reach the server.' });
@@ -1103,9 +1129,18 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
     }
   };
 
-  // Prefill the TAG input with the selected card's current TAG price.
+  // Prefill the pop + TAG inputs with the selected card's current values.
   useEffect(() => {
     const c = cards.find((x) => x.id === selectedCardId);
+    const p = c?.pop;
+    const s = (v) => (v != null ? String(v) : '');
+    setTotal(s(p?.total));
+    setPsa10(s(p?.psa10));
+    setPsa9(s(p?.psa9));
+    setPsa8(s(p?.psa8));
+    setPsa7(s(p?.psa7));
+    setListings(s(p?.listingsActive));
+    setMsg(null);
     setTagPriceInput(c?.price?.tag10 != null ? String(c.price.tag10) : '');
     setTagMsg(null);
   }, [selectedCardId, cards]);
@@ -1131,6 +1166,9 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
   };
 
   const withPop = cards.filter((c) => c.pop);
+  const gradedSum = [psa10, psa9, psa8, psa7].reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
+  const totalNum = parseInt(total, 10) || 0;
+  const totalMismatch = total !== '' && gradedSum > totalNum;
 
   return (
     <div className="fixed inset-0 bg-zinc-950 z-50 overflow-y-auto">
@@ -1149,11 +1187,23 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
               <option key={c.id} value={c.id}>{c.player} · {c.set}</option>
             ))}
           </select>
-          <input type="number" placeholder="PSA 10 pop (now)" value={psa10} onChange={(e)=>setPsa10(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
-          <input type="number" placeholder="PSA 10 pop (30d ago)" value={psa10Prior} onChange={(e)=>setPsa10Prior(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
-          <input type="number" placeholder="Active listings on eBay" value={listings} onChange={(e)=>setListings(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
-          <button onClick={save} disabled={saving} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
-            {saving ? 'Saving…' : 'Save to database'}
+          <input type="number" inputMode="numeric" placeholder="Total PSA population (from pop report)" value={total} onChange={(e)=>setTotal(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+          <div className="grid grid-cols-2 gap-2">
+            <input type="number" inputMode="numeric" placeholder="PSA 10" value={psa10} onChange={(e)=>setPsa10(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+            <input type="number" inputMode="numeric" placeholder="PSA 9" value={psa9} onChange={(e)=>setPsa9(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+            <input type="number" inputMode="numeric" placeholder="PSA 8" value={psa8} onChange={(e)=>setPsa8(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+            <input type="number" inputMode="numeric" placeholder="PSA 7" value={psa7} onChange={(e)=>setPsa7(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+          </div>
+          <input type="number" inputMode="numeric" placeholder="Active eBay listings (optional)" value={listings} onChange={(e)=>setListings(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
+          {total !== '' && (
+            <div className={`text-[11px] ${totalMismatch ? 'text-red-400' : 'text-zinc-500'}`}>
+              {totalMismatch
+                ? `⚠ Entered grades (${gradedSum}) exceed the total (${totalNum}).`
+                : `Grades entered: ${gradedSum} · Lower / other (derived): ${Math.max(0, totalNum - gradedSum)} · PSA 10 rate: ${totalNum > 0 && psa10 !== '' ? ((parseInt(psa10,10)||0) / totalNum * 100).toFixed(1) + '%' : '—'}`}
+            </div>
+          )}
+          <button onClick={save} disabled={saving || totalMismatch} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
+            {saving ? 'Saving…' : 'Save pop snapshot'}
           </button>
           {msg && (
             <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-orange-500/10 border border-orange-500/30 text-orange-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
@@ -1161,8 +1211,8 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
             </div>
           )}
           <div className="text-[10px] text-zinc-500 leading-relaxed">
-            Saved values persist in the database and apply for everyone. Leave all three
-            blank and save to revert a card to “Player signal only.”
+            Enter today’s PSA pop report numbers — the 30-day velocity builds automatically from
+            saved snapshots, so there’s no “30 days ago” to source. Leave all blank and save to clear.
           </div>
         </div>
 
@@ -1201,7 +1251,11 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
             {withPop.map((c) => (
               <div key={c.id} className="text-xs bg-zinc-900/60 border border-zinc-800 rounded p-2">
                 <div className="font-medium">{c.player}</div>
-                <div className="text-zinc-500">PSA10: {c.pop.psa10} (was {c.pop.psa10_30d_prior}) · {c.pop.listings_active} listings</div>
+                <div className="text-zinc-500">
+                  Total {c.pop.total ?? '—'} · PSA 10 {c.pop.psa10 ?? '—'}
+                  {c.pop.gemRate != null ? ` (${(c.pop.gemRate * 100).toFixed(1)}% gem)` : ''}
+                  {c.pop.change30dPsa10 != null ? ` · ${c.pop.change30dPsa10 >= 0 ? '+' : ''}${c.pop.change30dPsa10}% 30d` : ''}
+                </div>
               </div>
             ))}
           </div>
