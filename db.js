@@ -40,6 +40,7 @@ const CREATE_TABLE_SQL = `
     variant_id           VARCHAR(48),
     ask_price            INT,
     sportscardspro_id    VARCHAR(16)  NULL,
+    tag10_price          DECIMAL(12,2) NULL,
     traits               JSON         NOT NULL,
     bear_case            TEXT,
     pop_psa10            INT          NULL,
@@ -58,6 +59,9 @@ const CREATE_PRICE_TABLE_SQL = `
     card_id      VARCHAR(64)  NOT NULL,
     source       VARCHAR(32)  NOT NULL,
     price_raw    DECIMAL(12,2) NULL,
+    price_g7     DECIMAL(12,2) NULL,
+    price_g8     DECIMAL(12,2) NULL,
+    price_g9     DECIMAL(12,2) NULL,
     price_psa10  DECIMAL(12,2) NULL,
     price_bgs10  DECIMAL(12,2) NULL,
     currency     CHAR(3)      NOT NULL DEFAULT 'USD',
@@ -146,7 +150,7 @@ export async function initDb() {
  */
 export async function getPriceSummaries() {
   const [latest] = await pool.query(`
-    SELECT ph.card_id, ph.price_raw, ph.price_psa10, ph.price_bgs10, ph.currency, ph.source, ph.sample_size, ph.observed_on
+    SELECT ph.card_id, ph.price_raw, ph.price_g7, ph.price_g8, ph.price_g9, ph.price_psa10, ph.price_bgs10, ph.currency, ph.source, ph.sample_size, ph.observed_on
       FROM price_history ph
       JOIN (SELECT card_id, MAX(observed_on) AS mx FROM price_history GROUP BY card_id) m
         ON ph.card_id = m.card_id AND ph.observed_on = m.mx
@@ -167,18 +171,22 @@ export async function getPriceSummaries() {
 
   const out = {};
   for (const r of latest) {
-    const raw = r.price_raw != null ? Number(r.price_raw) : null;
-    const psa10 = r.price_psa10 != null ? Number(r.price_psa10) : null;
-    const bgs10 = r.price_bgs10 != null ? Number(r.price_bgs10) : null;
+    const num = (v) => (v != null ? Number(v) : null);
+    const raw = num(r.price_raw);
+    const psa10 = num(r.price_psa10);
+    const bgs10 = num(r.price_bgs10);
     const p30 = priorMap[r.card_id];
     const asOf = r.observed_on instanceof Date
       ? r.observed_on.toISOString().slice(0, 10)
       : String(r.observed_on);
     out[r.card_id] = {
       raw,
+      g7: num(r.price_g7),
+      g8: num(r.price_g8),
+      g9: num(r.price_g9),
       psa10,
       bgs10,
-      tag10: null, // TAG not tracked by SportsCardsPro; manual entry is a future add
+      tag10: null, // overridden by cards.tag10_price in getCards (manual entry)
       currency: r.currency,
       source: r.source,
       sampleSize: r.sample_size,
@@ -193,17 +201,33 @@ export async function getPriceSummaries() {
 export async function getCards() {
   const [rows] = await pool.query('SELECT * FROM cards ORDER BY sort_order ASC, player ASC');
   const prices = await getPriceSummaries();
-  return rows.map((r) => ({ ...rowToCard(r), price: prices[r.id] || null }));
+  return rows.map((r) => {
+    const card = rowToCard(r);
+    const tag = r.tag10_price != null ? Number(r.tag10_price) : null;
+    let price = prices[r.id] || null;
+    if (price) {
+      price.tag10 = tag; // manual TAG price from the cards table
+    } else if (tag != null) {
+      price = { raw: null, g7: null, g8: null, g9: null, psa10: null, bgs10: null, tag10: tag, currency: 'USD', source: 'manual', sampleSize: null, asOf: null, change30dRaw: null };
+    }
+    return { ...card, price };
+  });
 }
 
-/** Record (upsert) one daily price snapshot for a card (raw + PSA 10). */
-export async function recordPrice(cardId, { source, priceRaw = null, pricePsa10 = null, priceBgs10 = null, currency = 'USD', sampleSize = null, observedOn }) {
+/** Record (upsert) one daily price snapshot for a card (raw + graded ladder). */
+export async function recordPrice(cardId, { source, priceRaw = null, priceG7 = null, priceG8 = null, priceG9 = null, pricePsa10 = null, priceBgs10 = null, currency = 'USD', sampleSize = null, observedOn }) {
   await pool.query(
-    `INSERT INTO price_history (card_id, source, price_raw, price_psa10, price_bgs10, currency, sample_size, observed_on)
-     VALUES (?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE price_raw=VALUES(price_raw), price_psa10=VALUES(price_psa10), price_bgs10=VALUES(price_bgs10), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
-    [cardId, source, priceRaw, pricePsa10, priceBgs10, currency, sampleSize, observedOn]
+    `INSERT INTO price_history (card_id, source, price_raw, price_g7, price_g8, price_g9, price_psa10, price_bgs10, currency, sample_size, observed_on)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE price_raw=VALUES(price_raw), price_g7=VALUES(price_g7), price_g8=VALUES(price_g8), price_g9=VALUES(price_g9), price_psa10=VALUES(price_psa10), price_bgs10=VALUES(price_bgs10), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
+    [cardId, source, priceRaw, priceG7, priceG8, priceG9, pricePsa10, priceBgs10, currency, sampleSize, observedOn]
   );
+}
+
+/** Set (or clear, with null) the manually-entered TAG 10 price for a card. */
+export async function setTagPrice(cardId, price) {
+  const [result] = await pool.query('UPDATE cards SET tag10_price = ? WHERE id = ?', [price, cardId]);
+  return result.affectedRows > 0;
 }
 
 /**

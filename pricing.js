@@ -26,6 +26,9 @@ const mockProvider = {
     return {
       source: 'mock',
       priceRaw: raw,
+      priceG7: Math.round(raw * 0.6),
+      priceG8: Math.round(raw * 0.8),
+      priceG9: Math.round(psa10 * 0.4),
       pricePsa10: psa10,
       priceBgs10: Math.round(psa10 * 1.1), // BGS 10 slightly above PSA 10
       currency: 'USD',
@@ -50,15 +53,20 @@ const sportscardsproProvider = {
     const d = await res.json();
     if (d.status !== 'success') throw new Error(`status ${d.status}`);
 
-    const rawCents = d['loose-price'];        // ungraded
-    const psaCents = d['manual-only-price'];  // PSA 10
-    const bgsCents = d['bgs-10-price'];        // BGS 10
-    if (rawCents == null && psaCents == null && bgsCents == null) return null; // no comps → keep prior
+    // Field → grade mapping (verified against live products):
+    //  loose=raw, cib=Grade 7, new=Grade 8, graded=Grade 9,
+    //  manual-only=PSA 10, bgs-10=BGS 10.
+    const c = (k) => (d[k] != null ? Math.round(d[k]) / 100 : null);
+    const rawV = c('loose-price');
+    if (rawV == null && c('manual-only-price') == null && c('bgs-10-price') == null) return null;
     return {
       source: 'sportscardspro',
-      priceRaw: rawCents != null ? Math.round(rawCents) / 100 : null,
-      pricePsa10: psaCents != null ? Math.round(psaCents) / 100 : null,
-      priceBgs10: bgsCents != null ? Math.round(bgsCents) / 100 : null,
+      priceRaw: rawV,
+      priceG7: c('cib-price'),
+      priceG8: c('new-price'),
+      priceG9: c('graded-price'),
+      pricePsa10: c('manual-only-price'),
+      priceBgs10: c('bgs-10-price'),
       currency: 'USD',
       sampleSize: d['sales-volume'] ?? null,
     };

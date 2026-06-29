@@ -14,7 +14,7 @@ import express from 'express';
 import compression from 'compression';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, getCards, setPop } from './db.js';
+import { initDb, getCards, setPop, setTagPrice } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -87,6 +87,28 @@ app.post('/api/admin/pop', async (req, res) => {
   } catch (err) {
     console.error('[api] POST /api/admin/pop failed:', err.message);
     res.status(500).json({ error: 'Failed to save pop data' });
+  }
+});
+
+// Set/clear the manually-entered TAG 10 sold price for a card (SportsCardsPro
+// doesn't track TAG, so this is how real TAG comps get into the model).
+app.post('/api/admin/tag-price', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { id, tag10 } = req.body || {};
+  if (!id || typeof id !== 'string') return res.status(400).json({ error: 'Missing card id' });
+
+  let val = null;
+  if (tag10 !== '' && tag10 !== null && tag10 !== undefined) {
+    val = Number(tag10);
+    if (!Number.isFinite(val) || val < 0) return res.status(400).json({ error: 'Invalid price' });
+  }
+  try {
+    const matched = await setTagPrice(id, val);
+    if (!matched) return res.status(404).json({ error: 'Unknown card id' });
+    res.json({ ok: true, id, tag10: val });
+  } catch (err) {
+    console.error('[api] POST /api/admin/tag-price failed:', err.message);
+    res.status(500).json({ error: 'Failed to save TAG price' });
   }
 });
 

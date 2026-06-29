@@ -404,6 +404,9 @@ function computeFlip(card, combinedScore) {
   };
 
   const grades = {
+    g7: netFor(card.price?.g7),
+    g8: netFor(card.price?.g8),
+    g9: netFor(card.price?.g9),
     psa10: netFor(card.price?.psa10),
     bgs10: netFor(card.price?.bgs10),
     tag10: netFor(card.price?.tag10),
@@ -672,60 +675,33 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </div>
       </section>
 
-      {/* Recent market price — raw + every graded comp we have */}
-      {card.price && (card.price.raw != null || card.price.psa10 != null || card.price.bgs10 != null) && (
+      {/* Recent market price — the raw card you'd buy */}
+      {card.price && card.price.raw != null && (
         <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
           <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
             Recent market price
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Raw / ungraded</div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-xl font-bold tabular-nums">
-                  {card.price.raw != null ? '$' + card.price.raw.toLocaleString() : '—'}
-                </span>
-                {card.price.change30dRaw != null && (
-                  <span className={`text-xs font-medium ${card.price.change30dRaw >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {card.price.change30dRaw >= 0 ? '▲' : '▼'} {Math.abs(card.price.change30dRaw)}%
-                  </span>
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500">PSA 10</div>
-              <span className="text-xl font-bold tabular-nums">
-                {card.price.psa10 != null ? '$' + card.price.psa10.toLocaleString() : '—'}
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500">Raw</span>
+            <span className="text-2xl font-bold tabular-nums">${card.price.raw.toLocaleString()}</span>
+            {card.price.change30dRaw != null && (
+              <span className={`text-sm font-medium ${card.price.change30dRaw >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {card.price.change30dRaw >= 0 ? '▲' : '▼'} {Math.abs(card.price.change30dRaw)}% · 30d
               </span>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500">BGS 10</div>
-              <span className="text-xl font-bold tabular-nums">
-                {card.price.bgs10 != null ? '$' + card.price.bgs10.toLocaleString() : '—'}
-              </span>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500">TAG 10</div>
-              <span className="text-xl font-bold tabular-nums text-zinc-500">
-                {card.price.tag10 != null ? '$' + card.price.tag10.toLocaleString() : 'not tracked'}
-              </span>
-            </div>
+            )}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-2">
+          <div className="text-[11px] text-zinc-500 mt-1.5">
             {card.price.source === 'mock' ? 'Sample data (not live)' : 'SportsCardsPro'}
             {card.price.sampleSize ? ` · ${card.price.sampleSize} recent sales` : ''} · as of {card.price.asOf}
           </div>
         </section>
       )}
 
-      {/* Grading flip — buy raw, grade with TAG, sell graded (net of real fees) */}
+      {/* Target sell price — sell price + net profit at every grade */}
       {flip && (
         <section className="border border-emerald-500/30 bg-emerald-500/5 rounded-lg p-4">
-          <div className="text-[11px] uppercase tracking-widest text-emerald-400 mb-2">
-            Grading flip · net {flip.returnPct >= 0 ? '+' : ''}{flip.returnPct}%{' '}
-            <span className="text-zinc-500 normal-case tracking-normal">({flip.primaryLabel} ref)</span>
-          </div>
-          <div className="space-y-1.5 text-xs">
+          <div className="text-[11px] uppercase tracking-widest text-emerald-400 mb-2">Target sell price</div>
+          <div className="space-y-1.5 text-xs mb-3">
             <div className="flex justify-between">
               <span className="text-zinc-400">Target buy · raw −{Math.round(CONFIG.BUY_DISCOUNT * 100)}%</span>
               <span className="tabular-nums">${flip.targetBuy.toLocaleString()}</span>
@@ -739,34 +715,31 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
               <span className="tabular-nums">${flip.costBasis.toLocaleString()}</span>
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">
-              Net profit if sold (after {Math.round(CONFIG.EBAY_FEE_RATE * 100)}% eBay fee)
-            </div>
-            <div className="space-y-1 text-xs">
-              {[['PSA 10', flip.grades.psa10], ['BGS 10', flip.grades.bgs10], ['TAG 10', flip.grades.tag10]].map(([label, g]) => (
-                <div key={label} className="flex justify-between items-baseline">
-                  <span className="text-zinc-400">{label}</span>
+          <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-xs items-baseline">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500">Grade</div>
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 text-right">Sells for</div>
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 text-right">Net (after fees)</div>
+            {[['PSA 7', flip.grades.g7], ['PSA 8', flip.grades.g8], ['PSA 9', flip.grades.g9], ['PSA 10', flip.grades.psa10], ['BGS 10', flip.grades.bgs10], ['TAG 10', flip.grades.tag10]].map(([label, g]) => (
+              <React.Fragment key={label}>
+                <div className="text-zinc-400">{label}</div>
+                <div className="text-right tabular-nums">{g ? '$' + g.sell.toLocaleString() : '—'}</div>
+                <div className="text-right tabular-nums">
                   {g ? (
-                    <span className="tabular-nums">
-                      ${g.sell.toLocaleString()} <span className="text-zinc-600">→</span>{' '}
-                      <span className={g.net >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                        {g.net >= 0 ? '+' : ''}${g.net.toLocaleString()} ({g.pct}%)
-                      </span>
+                    <span className={g.net >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                      {g.net >= 0 ? '+' : ''}${g.net.toLocaleString()} ({g.pct}%)
                     </span>
                   ) : (
-                    <span className="text-zinc-600">{label === 'TAG 10' ? 'not tracked yet' : '—'}</span>
+                    <span className="text-zinc-600">{label === 'TAG 10' ? 'enter price' : '—'}</span>
                   )}
                 </div>
-              ))}
-            </div>
+              </React.Fragment>
+            ))}
           </div>
           <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
-            You grade with TAG, but TAG resale isn’t in our price source yet — PSA 10 / BGS 10 are
-            shown as comps (TAG often resells below PSA today). Net figures already subtract eBay’s
-            {' '}{Math.round(CONFIG.EBAY_FEE_RATE * 100)}% fee + ${CONFIG.EBAY_PER_ORDER_FEE.toFixed(2)} and the
-            ${flip.gradingCost} TAG fee, and assume the card grades a 10 (TAG Pristine is &lt;1% of cards).
-            Not financial advice.
+            Net = sale price − {Math.round(CONFIG.EBAY_FEE_RATE * 100)}% eBay fee − ${CONFIG.EBAY_PER_ORDER_FEE.toFixed(2)} −
+            cost basis. Low grades (PSA 7/8) can sell below raw — often not worth grading. You grade with TAG;
+            TAG resale isn’t tracked by our source, so enter real TAG comps in the admin panel. Assumes the card
+            earns that grade. Not financial advice.
           </p>
         </section>
       )}
@@ -1072,6 +1045,9 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
   const [listings, setListings] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [tagPrice, setTagPriceInput] = useState('');
+  const [tagSaving, setTagSaving] = useState(false);
+  const [tagMsg, setTagMsg] = useState(null);
 
   const save = async () => {
     if (!selectedCardId) return;
@@ -1100,6 +1076,33 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
       setMsg({ ok: false, text: 'Could not reach the server.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Prefill the TAG input with the selected card's current TAG price.
+  useEffect(() => {
+    const c = cards.find((x) => x.id === selectedCardId);
+    setTagPriceInput(c?.price?.tag10 != null ? String(c.price.tag10) : '');
+    setTagMsg(null);
+  }, [selectedCardId, cards]);
+
+  const saveTag = async () => {
+    if (!selectedCardId) return;
+    setTagSaving(true);
+    setTagMsg(null);
+    try {
+      const res = await fetch('/api/admin/tag-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ id: selectedCardId, tag10: tagPrice }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) setTagMsg({ ok: false, text: data.error || `Failed (${res.status})` });
+      else { setTagMsg({ ok: true, text: tagPrice === '' ? 'TAG price cleared.' : 'TAG price saved.' }); onSaved(); }
+    } catch {
+      setTagMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setTagSaving(false);
     }
   };
 
@@ -1138,6 +1141,33 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
             blank and save to revert a card to “Player signal only.”
           </div>
         </div>
+
+        <div className="mt-6 pt-4 border-t border-zinc-800 space-y-3">
+          <div className="text-[11px] uppercase tracking-widest text-zinc-500">TAG 10 price · manual</div>
+          <div className="text-[11px] text-zinc-400 leading-relaxed">
+            SportsCardsPro doesn’t track TAG. Enter a real TAG 10 sold price for the selected card to
+            drive its TAG number on the dossier. Leave blank and save to clear it.
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="TAG 10 sold price ($)"
+              value={tagPrice}
+              onChange={(e) => setTagPriceInput(e.target.value)}
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
+            />
+            <button onClick={saveTag} disabled={tagSaving} className="bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-medium rounded px-4 text-sm">
+              {tagSaving ? '…' : 'Save'}
+            </button>
+          </div>
+          {tagMsg && (
+            <div className={`text-xs rounded p-2 ${tagMsg.ok ? 'bg-orange-500/10 border border-orange-500/30 text-orange-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
+              {tagMsg.text}
+            </div>
+          )}
+        </div>
+
         <div className="mt-6">
           <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Current pop data</div>
           <div className="space-y-1.5">
