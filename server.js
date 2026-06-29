@@ -12,9 +12,17 @@
 import 'dotenv/config';
 import express from 'express';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, getCards, recordPop, setTagPrice } from './db.js';
+import {
+  initDb, getCards, recordPop, setTagPrice,
+  createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
+} from './db.js';
+import {
+  hashPassword, verifyPassword, signToken, verifyToken,
+  cookieOptions, validCredentials, publicUser, SESSION_COOKIE,
+} from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -29,8 +37,25 @@ app.get('/healthz', (req, res) => {
 // Gzip responses
 app.use(compression());
 
-// Parse JSON request bodies (for the admin write endpoints)
+// Parse JSON request bodies + cookies (for auth sessions)
 app.use(express.json());
+app.use(cookieParser());
+
+// Resolve the logged-in user from the session cookie (or null).
+async function getSessionUser(req) {
+  const token = req.cookies?.[SESSION_COOKIE];
+  if (!token) return null;
+  const payload = verifyToken(token);
+  if (!payload?.uid) return null;
+  return getUserById(payload.uid);
+}
+function requireAuth(handler) {
+  return async (req, res) => {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ error: 'Not signed in' });
+    return handler(req, res, user);
+  };
+}
 
 /* ============================================================================
    API — must be registered BEFORE the static + SPA-fallback handlers below,
@@ -122,6 +147,76 @@ app.post('/api/admin/tag-price', async (req, res) => {
     res.status(500).json({ error: 'Failed to save TAG price' });
   }
 });
+
+/* ============================================================================
+   AUTH — self-hosted email/password (session in an httpOnly cookie)
+   ============================================================================ */
+
+app.post('/api/auth/signup', async (req, res) => {
+  const { email, password } = req.body || {};
+  const invalid = validCredentials(email, password);
+  if (invalid) return res.status(400).json({ error: invalid });
+  try {
+    if (await getUserByEmail(email)) {
+      return res.status(409).json({ error: 'An account with that email already exists.' });
+    }
+    const user = await createUser(email, await hashPassword(password));
+    res.cookie(SESSION_COOKIE, signToken(user.id), cookieOptions());
+    res.json({ user: publicUser(user) });
+  } catch (err) {
+    console.error('[api] signup failed:', err.message);
+    res.status(500).json({ error: 'Could not create account' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Email and password required.' });
+  }
+  try {
+    const user = await getUserByEmail(email);
+    // Generic message either way — don't reveal whether the email exists.
+    if (!user || !(await verifyPassword(password, user.password_hash))) {
+      return res.status(401).json({ error: 'Incorrect email or password.' });
+    }
+    res.cookie(SESSION_COOKIE, signToken(user.id), cookieOptions());
+    res.json({ user: publicUser(user) });
+  } catch (err) {
+    console.error('[api] login failed:', err.message);
+    res.status(500).json({ error: 'Could not sign in' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie(SESSION_COOKIE, { ...cookieOptions(), maxAge: undefined });
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', async (req, res) => {
+  const user = await getSessionUser(req);
+  res.json({ user: publicUser(user) });
+});
+
+/* ============================================================================
+   WATCHLIST — per-user, requires a session
+   ============================================================================ */
+
+app.get('/api/watchlist', requireAuth(async (req, res, user) => {
+  res.json({ cardIds: await getWatchlist(user.id) });
+}));
+
+app.post('/api/watchlist', requireAuth(async (req, res, user) => {
+  const { cardId, watched } = req.body || {};
+  if (!cardId || typeof cardId !== 'string') return res.status(400).json({ error: 'Missing cardId' });
+  try {
+    await setWatch(user.id, cardId, Boolean(watched));
+    res.json({ ok: true, cardId, watched: Boolean(watched) });
+  } catch (err) {
+    console.error('[api] watchlist update failed:', err.message);
+    res.status(500).json({ error: 'Could not update watchlist' });
+  }
+}));
 
 // Serve built static assets with aggressive caching.
 // Vite hashes filenames (e.g. index-CtVBhsIM.js), so cached versions

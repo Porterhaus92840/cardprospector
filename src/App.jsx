@@ -1400,6 +1400,71 @@ function BottomNav({ tab, onTabChange, onOpenAdmin }) {
   );
 }
 
+function AuthModal({ onClose, onAuthed }) {
+  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/auth/${mode === 'signup' ? 'signup' : 'login'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) setErr(data.error || 'Something went wrong.');
+      else onAuthed(data.user);
+    } catch {
+      setErr('Could not reach the server.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-zinc-950/90 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">{mode === 'signup' ? 'Create account' : 'Sign in'}</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-3">
+          <input
+            type="email" autoComplete="email" placeholder="Email" value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm"
+          />
+          <input
+            type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+            placeholder="Password (8+ characters)" value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm"
+          />
+          {err && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded p-2">{err}</div>}
+          <button type="submit" disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded-lg py-2.5">
+            {busy ? '…' : mode === 'signup' ? 'Create account' : 'Sign in'}
+          </button>
+        </form>
+        <div className="text-xs text-zinc-400 text-center mt-3">
+          {mode === 'signup' ? 'Already have an account?' : "Don't have an account?"}{' '}
+          <button onClick={() => { setMode(mode === 'signup' ? 'login' : 'signup'); setErr(null); }} className="text-orange-400 hover:text-orange-300">
+            {mode === 'signup' ? 'Sign in' : 'Create one'}
+          </button>
+        </div>
+        <p className="text-[10px] text-zinc-500 text-center mt-3 leading-relaxed">
+          For entertainment only — not financial or investment advice.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================================
    APP ROOT
    ============================================================================ */
@@ -1416,6 +1481,11 @@ export default function CardProspector() {
   // unreachable — we fall back to the bundled seed so the app still renders.
   const [allCards, setAllCards] = useState(FEATURED_CARDS_SEED);
 
+  // Auth + per-user watchlist (server-backed).
+  const [user, setUser] = useState(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [watchlist, setWatchlist] = useState([]);
+
   const refetchCards = useCallback(async () => {
     try {
       const res = await fetch('/api/cards');
@@ -1427,8 +1497,27 @@ export default function CardProspector() {
     }
   }, []);
 
+  const refetchWatchlist = useCallback(async () => {
+    try {
+      const res = await fetch('/api/watchlist');
+      if (!res.ok) { setWatchlist([]); return; }
+      const data = await res.json();
+      setWatchlist(Array.isArray(data.cardIds) ? data.cardIds : []);
+    } catch { setWatchlist([]); }
+  }, []);
+
   useEffect(() => { saveState(state); }, [state]);
   useEffect(() => { refetchCards(); }, [refetchCards]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        setUser(data.user || null);
+      } catch { setUser(null); }
+    })();
+  }, []);
+  useEffect(() => { if (user) refetchWatchlist(); else setWatchlist([]); }, [user, refetchWatchlist]);
 
   const cards = useMemo(
     () => allCards.filter((c) => c.sport === sport),
@@ -1440,12 +1529,19 @@ export default function CardProspector() {
     return cards.find((c) => c.id === selectedCardId) || null;
   }, [selectedCardId, cards]);
 
+  // Watchlist is per-account. Toggling while signed out opens the auth modal.
   const toggleWatch = useCallback((id) => {
-    setState((s) => ({
-      ...s,
-      watchlist: s.watchlist.includes(id) ? s.watchlist.filter((x) => x !== id) : [...s.watchlist, id],
-    }));
-  }, []);
+    if (!user) { setAuthOpen(true); return; }
+    setWatchlist((w) => {
+      const has = w.includes(id);
+      fetch('/api/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardId: id, watched: !has }),
+      }).catch(() => {});
+      return has ? w.filter((x) => x !== id) : [...w, id];
+    });
+  }, [user]);
 
   const addToPortfolio = useCallback((id) => {
     setState((s) => {
@@ -1484,8 +1580,30 @@ export default function CardProspector() {
     }
   };
 
+  const onAuthed = (u) => { setUser(u); setAuthOpen(false); };
+  const signOut = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+    setUser(null);
+    setWatchlist([]);
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      {/* Account bar */}
+      <div className="px-4 py-1.5 bg-zinc-900/50 border-b border-zinc-800 flex justify-end items-center text-xs">
+        {user ? (
+          <div className="flex items-center gap-2 text-zinc-400">
+            <span className="truncate max-w-[180px]">{user.email}</span>
+            <span className="text-zinc-600">·</span>
+            <button onClick={signOut} className="text-orange-400 hover:text-orange-300">Sign out</button>
+          </div>
+        ) : (
+          <button onClick={() => setAuthOpen(true)} className="text-orange-400 hover:text-orange-300 font-medium">
+            Sign in / Create account
+          </button>
+        )}
+      </div>
+
       <Header sport={sport} onSportChange={setSport} />
 
       <main className="flex-1 overflow-y-auto">
@@ -1493,7 +1611,7 @@ export default function CardProspector() {
           <DossierView
             card={selectedCard}
             onBack={() => setSelectedCardId(null)}
-            isWatched={state.watchlist.includes(selectedCard.id)}
+            isWatched={watchlist.includes(selectedCard.id)}
             onToggleWatch={toggleWatch}
             onAddToPortfolio={addToPortfolio}
           />
@@ -1501,7 +1619,7 @@ export default function CardProspector() {
           <ScoutTab
             cards={cards}
             onSelectCard={setSelectedCardId}
-            watchlist={state.watchlist}
+            watchlist={watchlist}
             onToggleWatch={toggleWatch}
           />
         ) : tab === 'learn' ? (
@@ -1531,6 +1649,8 @@ export default function CardProspector() {
           onClose={() => setAdminOpen(false)}
         />
       )}
+
+      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
     </div>
   );
 }

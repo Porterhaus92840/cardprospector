@@ -99,6 +99,33 @@ const CREATE_POP_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 
+// User accounts (self-hosted auth). Subscription columns are filled in Phase 2
+// (Stripe); they default to the free tier for now.
+const CREATE_USERS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS users (
+    id                   BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    email                VARCHAR(255) NOT NULL UNIQUE,
+    password_hash        VARCHAR(255) NOT NULL,
+    tier                 VARCHAR(16)  NOT NULL DEFAULT 'free',
+    stripe_customer_id   VARCHAR(64)  NULL,
+    subscription_status  VARCHAR(32)  NULL,
+    trial_end            DATETIME     NULL,
+    created_at           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
+// Per-user private watchlist (replaces the old localStorage watchlist).
+const CREATE_WATCHLIST_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS watchlists (
+    user_id     BIGINT      NOT NULL,
+    card_id     VARCHAR(64) NOT NULL,
+    created_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, card_id),
+    CONSTRAINT fk_watch_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_watch_card FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
 /** Map a DB row to the shape the frontend already expects. */
 function rowToCard(row) {
   const traits = typeof row.traits === 'string' ? JSON.parse(row.traits) : row.traits;
@@ -124,6 +151,8 @@ export async function initDb() {
   await pool.query(CREATE_TABLE_SQL);
   await pool.query(CREATE_PRICE_TABLE_SQL);
   await pool.query(CREATE_POP_TABLE_SQL);
+  await pool.query(CREATE_USERS_TABLE_SQL);
+  await pool.query(CREATE_WATCHLIST_TABLE_SQL);
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -300,6 +329,45 @@ export async function recordPrice(cardId, { source, priceRaw = null, priceG7 = n
 export async function setTagPrice(cardId, price) {
   const [result] = await pool.query('UPDATE cards SET tag10_price = ? WHERE id = ?', [price, cardId]);
   return result.affectedRows > 0;
+}
+
+/* ============================================================================
+   USERS + WATCHLIST
+   ============================================================================ */
+
+/** Create a user. Throws on duplicate email (caught by the route as 409). */
+export async function createUser(email, passwordHash) {
+  const [res] = await pool.query(
+    'INSERT INTO users (email, password_hash) VALUES (?, ?)',
+    [email.toLowerCase(), passwordHash]
+  );
+  return getUserById(res.insertId);
+}
+
+export async function getUserByEmail(email) {
+  const [[row]] = await pool.query('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
+  return row || null;
+}
+
+export async function getUserById(id) {
+  const [[row]] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
+  return row || null;
+}
+
+/** Card ids on a user's watchlist. */
+export async function getWatchlist(userId) {
+  const [rows] = await pool.query('SELECT card_id FROM watchlists WHERE user_id = ?', [userId]);
+  return rows.map((r) => r.card_id);
+}
+
+/** Add or remove a card from a user's watchlist. Returns the new state. */
+export async function setWatch(userId, cardId, watched) {
+  if (watched) {
+    await pool.query('INSERT IGNORE INTO watchlists (user_id, card_id) VALUES (?, ?)', [userId, cardId]);
+  } else {
+    await pool.query('DELETE FROM watchlists WHERE user_id = ? AND card_id = ?', [userId, cardId]);
+  }
+  return watched;
 }
 
 /**
