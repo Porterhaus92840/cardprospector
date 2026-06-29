@@ -1292,9 +1292,10 @@ function SiteFooter() {
       {/* Disclaimer + feedback */}
       <div className="text-[11px] leading-relaxed text-zinc-500 text-center space-y-2">
         <p>
-          <span className="text-zinc-400 font-medium">Not financial advice.</span>{' '}
-          CardProspector surfaces pattern-based hypotheses, not predictions. Card values are
-          volatile and you can lose money. Always do your own research before buying.
+          <span className="text-zinc-400 font-medium">Not financial or investment advice.</span>{' '}
+          CardProspector is intended for entertainment purposes only. It surfaces pattern-based
+          hypotheses, not predictions. Card values are volatile and you can lose money. Always do
+          your own research before buying.
         </p>
         <p>
           <a href={feedbackHref} className="text-orange-400/80 hover:text-orange-400 underline">
