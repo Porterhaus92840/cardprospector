@@ -445,6 +445,47 @@ function computeFlip(card, combinedScore) {
   };
 }
 
+/* ----------------------------------------------------------------------------
+   HOLD HORIZON — how long to hold for the card's value to play out. A heuristic
+   (tunable), separate from the grading-flip %:
+   - longevity + still-rising ceiling (peak) → value compounds over years (long)
+   - a low current price has room to run; a high price is nearer its ceiling
+   - fast PSA-10 pop growth (when known) means supply is flooding → sell sooner
+   Returns short / mid / long with a colour and a one-line rationale.
+   ---------------------------------------------------------------------------- */
+const HORIZON_STYLE = {
+  short: { label: 'Short-term hold', cls: 'bg-sky-500/15 text-sky-400 border-sky-500/40' },
+  mid:   { label: 'Mid-term hold',   cls: 'bg-amber-500/15 text-amber-400 border-amber-500/40' },
+  long:  { label: 'Long-term hold',  cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
+};
+function computeHorizon(card) {
+  const t = card.traits || {};
+  let score = 50;
+  score += ((t.longevity ?? 70) - 70) * 0.6; // durability compounds over years
+  score += ((t.peak ?? 80) - 80) * 0.4;       // unrealized ceiling worth holding for
+  const raw = card.price?.raw;
+  if (raw != null) {
+    if (raw < 120) score += 12;        // cheap → room to appreciate
+    else if (raw < 300) score += 4;
+    else if (raw < 600) score -= 6;
+    else score -= 14;                  // expensive → much already priced in
+  }
+  const vel = card.pop?.change30dPsa10;
+  if (vel != null) {
+    if (vel >= 20) score -= 12;        // pop flooding → realize value sooner
+    else if (vel < 5) score += 6;      // scarce/stable → safe to hold
+  }
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const key = score >= 62 ? 'long' : score <= 45 ? 'short' : 'mid';
+  const blurb =
+    key === 'long'
+      ? 'Durable profile with a still-rising ceiling and room left in the price — value compounds over the player’s career. Hold for the long game.'
+      : key === 'short'
+      ? 'Value is largely realizable near-term (price already elevated, or durability risk) — capture it and move on rather than holding for years.'
+      : 'Balanced profile — real upside but not a multi-year compounder. Hold through the next catalyst, then reassess.';
+  return { key, score, blurb, ...HORIZON_STYLE[key] };
+}
+
 /* ============================================================================
    STORAGE
    ============================================================================ */
@@ -567,7 +608,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
   const scored = cards
     .map((c) => {
       const cs = computeCombinedScore(c);
-      return { card: c, ...cs, flip: computeFlip(c, cs.combinedScore) };
+      return { card: c, ...cs, flip: computeFlip(c, cs.combinedScore), horizon: computeHorizon(c) };
     })
     .sort((a, b) => (b.flip?.flipScore ?? b.combinedScore) - (a.flip?.flipScore ?? a.combinedScore));
 
@@ -576,7 +617,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
       <div className="text-[11px] uppercase tracking-widest text-zinc-500">
         Today's prospects · raw → graded flip · net return
       </div>
-      {scored.map(({ card, combinedScore, flip }) => {
+      {scored.map(({ card, combinedScore, flip, horizon }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
         const isWatched = watchlist.includes(card.id);
         const pctColor = !flip ? '' :
@@ -607,6 +648,9 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
                     Ask ${card.askPrice.toLocaleString()} · price pending
                   </div>
                 )}
+                <div className={`inline-block mt-1.5 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${horizon.cls}`}>
+                  {horizon.label}
+                </div>
               </div>
               <div className="flex flex-col items-end gap-1">
                 {flip ? (
@@ -638,6 +682,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
     `${card.player} ${card.set} ${card.cardNumber || ''}`.replace(/·/g, ' ').replace(/\s+/g, ' ').trim()
   );
   const flip = computeFlip(card, combinedScore);
+  const horizon = computeHorizon(card);
 
   return (
     <div className="px-4 py-4 pb-8 space-y-5">
@@ -660,6 +705,15 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
           <span className="text-[10px] uppercase tracking-wider opacity-80">Scarcity</span>
         </div>
       </div>
+
+      {/* Hold horizon */}
+      <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-[11px] uppercase tracking-widest text-zinc-500">Hold horizon</span>
+          <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${horizon.cls}`}>{horizon.label}</span>
+        </div>
+        <p className="text-xs text-zinc-400 leading-relaxed">{horizon.blurb}</p>
+      </section>
 
       {/* How the scores are built */}
       <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4 space-y-3">
@@ -764,7 +818,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
             Net = sale price − {Math.round(CONFIG.EBAY_FEE_RATE * 100)}% eBay fee − ${CONFIG.EBAY_PER_ORDER_FEE.toFixed(2)} −
             cost basis. Low grades (PSA 7/8) can sell below raw — often not worth grading. You grade with TAG;
             TAG resale isn’t tracked by our source, so enter real TAG comps in the admin panel. Assumes the card
-            earns that grade. Not financial advice.
+            earns that grade. Not financial or investment advice — for entertainment only.
           </p>
         </section>
       )}
