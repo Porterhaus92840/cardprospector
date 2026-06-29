@@ -697,6 +697,11 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         <div className="text-xs text-zinc-500 mt-1">{card.set} · {variant?.label}{card.cardNumber ? ` · ${card.cardNumber}` : ''}</div>
       </div>
 
+      <p className="text-xs text-zinc-400 italic leading-relaxed border-l-2 border-orange-500/40 pl-3">
+        Our card hypothesis is as follows — a data-driven framework for thinking about this card,
+        not financial or investment advice.
+      </p>
+
       <div className="flex items-center gap-2">
         <ScoreBadge value={combinedScore} label="Combined" />
         <ScoreBadge value={playerSignal} label="Player" />
@@ -775,23 +780,25 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         <section className="border border-emerald-500/30 bg-emerald-500/5 rounded-lg p-4">
           <div className="text-[11px] uppercase tracking-widest text-emerald-400 mb-2">Target sell price</div>
           <div className="space-y-1.5 text-xs mb-3">
-            <div className="flex justify-between">
-              <span className="text-zinc-400">Target buy · raw −{Math.round(CONFIG.BUY_DISCOUNT * 100)}%</span>
-              <span className="tabular-nums">${flip.targetBuy.toLocaleString()}</span>
+            <div className="flex justify-between bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+              <span className="text-amber-200/90">Target buy · raw −{Math.round(CONFIG.BUY_DISCOUNT * 100)}%</span>
+              <span className="tabular-nums text-amber-100">${flip.targetBuy.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between px-2">
               <span className="text-zinc-400">TAG grading (Basic)</span>
               <span className="tabular-nums">${flip.gradingCost}</span>
             </div>
-            <div className="flex justify-between border-t border-zinc-800 pt-1.5 font-medium">
+            <div className="flex justify-between border-t border-zinc-800 pt-1.5 font-medium px-2">
               <span className="text-zinc-300">Cost basis</span>
               <span className="tabular-nums">${flip.costBasis.toLocaleString()}</span>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-xs items-baseline">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500">Grade</div>
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500 text-right">Sells for</div>
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500 text-right">Net (after fees)</div>
+          <div className="grid grid-cols-3 gap-x-2 text-[10px] uppercase tracking-wider text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded px-2 py-1 mb-1">
+            <div>Grade</div>
+            <div className="text-right">Sells for</div>
+            <div className="text-right">Net (after fees)</div>
+          </div>
+          <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-xs items-baseline px-2">
             {GRADE_ROWS.map(([label, key]) => {
               const g = flip.grades[key];
               const isBest = label === flip.bestLabel;
