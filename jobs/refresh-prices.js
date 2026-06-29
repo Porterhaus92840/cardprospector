@@ -37,10 +37,10 @@ async function main() {
   for (const card of cards) {
     try {
       const r = await provider.fetchPrice(card);
-      if (r && r.price != null) {
+      if (r && (r.priceRaw != null || r.pricePsa10 != null)) {
         await recordPrice(card.id, { ...r, observedOn });
         ok++;
-        console.log(`[refresh] ${card.id} ← ${r.price} ${r.currency} (${r.source}, n=${r.sampleSize ?? '?'})`);
+        console.log(`[refresh] ${card.id} ← raw ${r.priceRaw ?? '—'} / psa10 ${r.pricePsa10 ?? '—'} ${r.currency} (${r.source}, n=${r.sampleSize ?? '?'})`);
       } else {
         console.log(`[refresh] ${card.id} — no data (kept prior snapshot)`);
       }

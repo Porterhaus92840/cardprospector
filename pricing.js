@@ -21,9 +21,11 @@ const mockProvider = {
     let h = 0;
     for (let i = 0; i < card.id.length; i++) h = (h * 31 + card.id.charCodeAt(i)) >>> 0;
     const factor = 0.7 + (h % 40) / 100; // 0.70–1.09 of ask, stable per card
+    const raw = Math.round(ask * factor);
     return {
       source: 'mock',
-      price: Math.round(ask * factor),
+      priceRaw: raw,
+      pricePsa10: Math.round(raw * (1.8 + (h % 20) / 10)), // ~1.8–3.7x raw
       currency: 'USD',
       sampleSize: 3 + (h % 12),
     };
@@ -31,8 +33,8 @@ const mockProvider = {
 };
 
 // SportsCardsPro — each card stores its product id (sportscardsproId). We read
-// the ungraded ("loose-price") value, in pennies, plus sales-volume as the
-// sample size. Token comes from SCP_TOKEN in the server .env.
+// the ungraded ("loose-price") AND PSA 10 ("manual-only-price") values, in
+// pennies, plus sales-volume as the sample size. Token from SCP_TOKEN in .env.
 const sportscardsproProvider = {
   name: 'sportscardspro',
   async fetchPrice(card) {
@@ -46,11 +48,13 @@ const sportscardsproProvider = {
     const d = await res.json();
     if (d.status !== 'success') throw new Error(`status ${d.status}`);
 
-    const cents = d['loose-price'];
-    if (cents == null) return null; // no ungraded comp → keep prior snapshot
+    const rawCents = d['loose-price'];        // ungraded
+    const psaCents = d['manual-only-price'];  // PSA 10
+    if (rawCents == null && psaCents == null) return null; // no comps → keep prior
     return {
       source: 'sportscardspro',
-      price: Math.round(cents) / 100, // pennies → dollars (keeps cents)
+      priceRaw: rawCents != null ? Math.round(rawCents) / 100 : null,
+      pricePsa10: psaCents != null ? Math.round(psaCents) / 100 : null,
       currency: 'USD',
       sampleSize: d['sales-volume'] ?? null,
     };

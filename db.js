@@ -57,7 +57,8 @@ const CREATE_PRICE_TABLE_SQL = `
     id           BIGINT       AUTO_INCREMENT PRIMARY KEY,
     card_id      VARCHAR(64)  NOT NULL,
     source       VARCHAR(32)  NOT NULL,
-    price        DECIMAL(12,2) NOT NULL,
+    price_raw    DECIMAL(12,2) NULL,
+    price_psa10  DECIMAL(12,2) NULL,
     currency     CHAR(3)      NOT NULL DEFAULT 'USD',
     sample_size  INT          NULL,
     observed_on  DATE         NOT NULL,
@@ -144,13 +145,13 @@ export async function initDb() {
  */
 export async function getPriceSummaries() {
   const [latest] = await pool.query(`
-    SELECT ph.card_id, ph.price, ph.currency, ph.source, ph.sample_size, ph.observed_on
+    SELECT ph.card_id, ph.price_raw, ph.price_psa10, ph.currency, ph.source, ph.sample_size, ph.observed_on
       FROM price_history ph
       JOIN (SELECT card_id, MAX(observed_on) AS mx FROM price_history GROUP BY card_id) m
         ON ph.card_id = m.card_id AND ph.observed_on = m.mx
   `);
   const [prior] = await pool.query(`
-    SELECT ph.card_id, ph.price
+    SELECT ph.card_id, ph.price_raw
       FROM price_history ph
       JOIN (
         SELECT card_id, MAX(observed_on) AS mx
@@ -161,22 +162,24 @@ export async function getPriceSummaries() {
   `);
 
   const priorMap = {};
-  for (const r of prior) priorMap[r.card_id] = Number(r.price);
+  for (const r of prior) if (r.price_raw != null) priorMap[r.card_id] = Number(r.price_raw);
 
   const out = {};
   for (const r of latest) {
-    const price = Number(r.price);
+    const raw = r.price_raw != null ? Number(r.price_raw) : null;
+    const psa10 = r.price_psa10 != null ? Number(r.price_psa10) : null;
     const p30 = priorMap[r.card_id];
     const asOf = r.observed_on instanceof Date
       ? r.observed_on.toISOString().slice(0, 10)
       : String(r.observed_on);
     out[r.card_id] = {
-      latest: price,
+      raw,
+      psa10,
       currency: r.currency,
       source: r.source,
       sampleSize: r.sample_size,
       asOf,
-      change30d: p30 ? Math.round(((price - p30) / p30) * 1000) / 10 : null,
+      change30dRaw: raw != null && p30 ? Math.round(((raw - p30) / p30) * 1000) / 10 : null,
     };
   }
   return out;
@@ -189,13 +192,13 @@ export async function getCards() {
   return rows.map((r) => ({ ...rowToCard(r), price: prices[r.id] || null }));
 }
 
-/** Record (upsert) one daily price snapshot for a card. */
-export async function recordPrice(cardId, { source, price, currency = 'USD', sampleSize = null, observedOn }) {
+/** Record (upsert) one daily price snapshot for a card (raw + PSA 10). */
+export async function recordPrice(cardId, { source, priceRaw = null, pricePsa10 = null, currency = 'USD', sampleSize = null, observedOn }) {
   await pool.query(
-    `INSERT INTO price_history (card_id, source, price, currency, sample_size, observed_on)
-     VALUES (?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE price=VALUES(price), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
-    [cardId, source, price, currency, sampleSize, observedOn]
+    `INSERT INTO price_history (card_id, source, price_raw, price_psa10, currency, sample_size, observed_on)
+     VALUES (?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE price_raw=VALUES(price_raw), price_psa10=VALUES(price_psa10), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
+    [cardId, source, priceRaw, pricePsa10, currency, sampleSize, observedOn]
   );
 }
 

@@ -28,6 +28,10 @@ const CONFIG = {
   // PSA API token (Bearer). Get from psacard.com/publicapi after registration.
   // Used for portfolio cert verification only — pop data is NOT in this API.
   PSA_API_TOKEN: '',
+  // Grading-flip model (tunable): target buy = raw price minus BUY_DISCOUNT;
+  // GRADING_COST is the assumed PSA fee per card used in the projected return.
+  BUY_DISCOUNT: 0.10,
+  GRADING_COST: 25,
   // NOTE: the admin gate now lives server-side (ADMIN_TOKEN in the server .env),
   // verified via POST /api/admin/verify — not in this public bundle.
   // Where the footer "Send feedback" link points. Consider a dedicated
@@ -373,6 +377,33 @@ function computeCombinedScore(card) {
   return { playerSignal, scarcity, combinedScore: normalized };
 }
 
+/* ----------------------------------------------------------------------------
+   GRADING FLIP — buy the raw card (at a discount), grade it, sell as a PSA 10.
+   targetBuy = raw − BUY_DISCOUNT; profit = PSA10 − targetBuy − GRADING_COST.
+   flipScore blends engine conviction (combined) with the grading arbitrage so
+   the Scout list surfaces quality cards with the best raw→PSA10 upside.
+   Returns null unless the card has BOTH a raw and a PSA 10 price.
+   ---------------------------------------------------------------------------- */
+function computeFlip(card, combinedScore) {
+  const raw = card.price?.raw;
+  const psa10 = card.price?.psa10;
+  if (raw == null || psa10 == null) return null;
+  const targetBuy = raw * (1 - CONFIG.BUY_DISCOUNT);
+  const costBasis = targetBuy + CONFIG.GRADING_COST;
+  const profit = psa10 - costBasis;
+  const returnPct = Math.round((profit / costBasis) * 100);
+  const arbScore = Math.max(0, Math.min(100, returnPct / 3)); // +300% → 100
+  const flipScore = Math.round(0.5 * combinedScore + 0.5 * arbScore);
+  return {
+    targetBuy: Math.round(targetBuy),
+    costBasis: Math.round(costBasis),
+    targetSell: Math.round(psa10),
+    profit: Math.round(profit),
+    returnPct,
+    flipScore,
+  };
+}
+
 /* ============================================================================
    STORAGE
    ============================================================================ */
@@ -489,19 +520,28 @@ function ScoreBadge({ value, label }) {
 }
 
 function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
-  // Cards (and their pop data) come from the API, which reads MySQL.
+  // Cards + prices come from the API (MySQL). Rank by flip score (engine
+  // conviction blended with raw→PSA10 grading upside); cards without prices
+  // fall back to their combined score and sort below priced ones.
   const scored = cards
-    .map((c) => ({ card: c, ...computeCombinedScore(c) }))
-    .sort((a, b) => b.combinedScore - a.combinedScore);
+    .map((c) => {
+      const cs = computeCombinedScore(c);
+      return { card: c, ...cs, flip: computeFlip(c, cs.combinedScore) };
+    })
+    .sort((a, b) => (b.flip?.flipScore ?? b.combinedScore) - (a.flip?.flipScore ?? a.combinedScore));
 
   return (
     <div className="px-4 py-4 space-y-3">
       <div className="text-[11px] uppercase tracking-widest text-zinc-500">
-        Today's prospects · sorted by combined score
+        Today's prospects · raw → PSA 10 flip upside
       </div>
-      {scored.map(({ card, playerSignal, scarcity, combinedScore }) => {
+      {scored.map(({ card, combinedScore, flip }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
         const isWatched = watchlist.includes(card.id);
+        const pctColor = !flip ? '' :
+          flip.returnPct >= 60 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' :
+          flip.returnPct >= 25 ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' :
+                                 'bg-zinc-700/30 text-zinc-400 border-zinc-600/40';
         return (
           <button
             key={card.id}
@@ -514,20 +554,29 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
                 <div className="text-xs text-zinc-400 truncate">
                   {card.set} · {variant?.label}
                 </div>
-                <div className="text-xs text-zinc-500 mt-1">
-                  Ask ${card.askPrice.toLocaleString()}
-                  {!scarcity.hasRealData && (
-                    <span className="ml-2 text-amber-500/70">· Player signal only</span>
-                  )}
-                </div>
+                {flip ? (
+                  <div className="text-xs text-zinc-300 mt-1.5">
+                    <span className="text-zinc-500">Buy</span> ${flip.targetBuy.toLocaleString()}
+                    <span className="text-zinc-600 mx-1">→</span>
+                    <span className="text-zinc-500">Sell</span> ${flip.targetSell.toLocaleString()}
+                    <span className="text-zinc-600"> PSA 10</span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-zinc-500 mt-1.5">
+                    Ask ${card.askPrice.toLocaleString()} · price pending
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-end gap-1">
-                <ScoreBadge value={combinedScore} label="Combined" />
-                <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
-                  <span>P {playerSignal}</span>
-                  <span>·</span>
-                  <span>S {scarcity.multiplier.toFixed(2)}×</span>
-                </div>
+                {flip ? (
+                  <div className={`inline-flex items-baseline gap-1 px-2 py-1 rounded border ${pctColor}`}>
+                    <span className="text-lg font-bold tabular-nums">{flip.returnPct >= 0 ? '+' : ''}{flip.returnPct}%</span>
+                    <span className="text-[9px] uppercase tracking-wider opacity-80">proj.</span>
+                  </div>
+                ) : (
+                  <ScoreBadge value={combinedScore} label="Combined" />
+                )}
+                <div className="text-[10px] text-zinc-500">Score {combinedScore}</div>
               </div>
             </div>
             {isWatched && (
@@ -545,6 +594,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
   const comp = findBestComp(card.traits, card.sport);
   const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
   const ebayUrl = buildEbayLink(`${card.player} ${card.set} ${variant?.label || ''}`);
+  const flip = computeFlip(card, combinedScore);
 
   return (
     <div className="px-4 py-4 pb-8 space-y-5">
@@ -599,30 +649,72 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </div>
       </section>
 
-      {/* Recent market price — only shows once the price refresh job has data */}
-      {card.price && (
+      {/* Recent market price — both raw and PSA 10 (once the refresh job has data) */}
+      {card.price && (card.price.raw != null || card.price.psa10 != null) && (
         <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
           <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
-            Recent market price · raw
+            Recent market price
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold tabular-nums">
-              ${card.price.latest.toLocaleString()}
-            </span>
-            {card.price.change30d != null && (
-              <span className={`text-sm font-medium ${card.price.change30d >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {card.price.change30d >= 0 ? '▲' : '▼'} {Math.abs(card.price.change30d)}% · 30d
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Raw / ungraded</div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-xl font-bold tabular-nums">
+                  {card.price.raw != null ? '$' + card.price.raw.toLocaleString() : '—'}
+                </span>
+                {card.price.change30dRaw != null && (
+                  <span className={`text-xs font-medium ${card.price.change30dRaw >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {card.price.change30dRaw >= 0 ? '▲' : '▼'} {Math.abs(card.price.change30dRaw)}%
+                  </span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">PSA 10</div>
+              <span className="text-xl font-bold tabular-nums">
+                {card.price.psa10 != null ? '$' + card.price.psa10.toLocaleString() : '—'}
               </span>
-            )}
+            </div>
           </div>
-          <div className="text-[11px] text-zinc-500 mt-1">
-            {card.price.source === 'mock' ? 'Sample data (not live)' : 'Raw / ungraded auto'}
+          <div className="text-[11px] text-zinc-500 mt-2">
+            {card.price.source === 'mock' ? 'Sample data (not live)' : 'SportsCardsPro'}
             {card.price.sampleSize ? ` · ${card.price.sampleSize} recent sales` : ''} · as of {card.price.asOf}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
-            This is the <span className="text-zinc-300">raw (ungraded)</span> sale price — a graded
-            PSA 10 of the same card typically sells for noticeably more.
+        </section>
+      )}
+
+      {/* Grading flip — buy raw, grade, sell as PSA 10 */}
+      {flip && (
+        <section className="border border-emerald-500/30 bg-emerald-500/5 rounded-lg p-4">
+          <div className="text-[11px] uppercase tracking-widest text-emerald-400 mb-2">
+            Grading flip · projected {flip.returnPct >= 0 ? '+' : ''}{flip.returnPct}%
           </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Target buy · raw −{Math.round(CONFIG.BUY_DISCOUNT * 100)}%</span>
+              <span className="tabular-nums">${flip.targetBuy.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Grading cost</span>
+              <span className="tabular-nums">${CONFIG.GRADING_COST}</span>
+            </div>
+            <div className="flex justify-between border-t border-zinc-800 pt-1.5">
+              <span className="text-zinc-400">Cost basis</span>
+              <span className="tabular-nums">${flip.costBasis.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Target sell · PSA 10</span>
+              <span className="tabular-nums">${flip.targetSell.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between font-semibold text-emerald-400 border-t border-zinc-800 pt-1.5">
+              <span>Projected profit</span>
+              <span className="tabular-nums">{flip.profit >= 0 ? '+' : ''}${flip.profit.toLocaleString()} ({flip.returnPct}%)</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-zinc-500 mt-2.5 leading-relaxed">
+            Buy the raw card near the target, grade it (~${CONFIG.GRADING_COST}), and sell as a PSA 10.
+            Assumes it grades a 10 — not every card does, and grading takes weeks. Not financial advice.
+          </p>
         </section>
       )}
 
