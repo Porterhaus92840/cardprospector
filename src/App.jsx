@@ -635,7 +635,9 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
   const { playerSignal, scarcity, combinedScore } = computeCombinedScore(card);
   const comp = findBestComp(card.traits, card.sport);
   const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
-  const ebayUrl = buildEbayLink(`${card.player} ${card.set} ${card.cardNumber || ''}`.trim());
+  const ebayUrl = buildEbayLink(
+    `${card.player} ${card.set} ${card.cardNumber || ''}`.replace(/·/g, ' ').replace(/\s+/g, ' ').trim()
+  );
   const flip = computeFlip(card, combinedScore);
 
   return (
