@@ -568,11 +568,42 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </div>
       </div>
 
+      {/* How the scores are built */}
+      <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4 space-y-3">
+        <div className="text-[11px] uppercase tracking-widest text-zinc-500">How this card scores</div>
+        <div>
+          <div className="text-sm font-semibold text-orange-400">Combined · {combinedScore}</div>
+          <p className="text-xs text-zinc-400 leading-relaxed mt-0.5">
+            The headline rank, 0–100. We multiply the Player signal by the Scarcity multiplier and
+            normalize — it blends “how strong is the player bet” with “how rare is this card.” The
+            Scout tab sorts by this number.
+          </p>
+        </div>
+        <div>
+          <div className="text-sm font-semibold text-zinc-200">Player · {playerSignal}</div>
+          <p className="text-xs text-zinc-400 leading-relaxed mt-0.5">
+            How closely {card.player}’s seven-trait profile matches the historical premium-card
+            archetypes (a weighted similarity, 0–100). Closest match here is {comp.archetype.name} at{' '}
+            {Math.round(comp.similarity * 100)}%. Higher means a stronger resemblance to players whose
+            cards became premium.
+          </p>
+        </div>
+        <div>
+          <div className="text-sm font-semibold text-zinc-200">Scarcity · {scarcity.multiplier.toFixed(2)}×</div>
+          <p className="text-xs text-zinc-400 leading-relaxed mt-0.5">
+            Starts from this parallel’s base rarity ({variant?.label}) and{' '}
+            {scarcity.hasRealData
+              ? `adjusts for PSA-10 pop velocity (${(scarcity.popVelocity * 100).toFixed(1)}% growth over 30 days — slower growth = scarcer).`
+              : 'would adjust for PSA-10 pop velocity once pop data is entered (none yet, so base rarity only).'}
+          </p>
+        </div>
+      </section>
+
       {/* Recent market price — only shows once the price refresh job has data */}
       {card.price && (
         <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
           <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
-            Recent market price
+            Recent market price · raw
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-bold tabular-nums">
@@ -585,8 +616,12 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
             )}
           </div>
           <div className="text-[11px] text-zinc-500 mt-1">
-            {card.price.source === 'mock' ? 'Sample data (not live)' : `Source: ${card.price.source}`}
+            {card.price.source === 'mock' ? 'Sample data (not live)' : 'Raw / ungraded auto'}
             {card.price.sampleSize ? ` · ${card.price.sampleSize} recent sales` : ''} · as of {card.price.asOf}
+          </div>
+          <div className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
+            This is the <span className="text-zinc-300">raw (ungraded)</span> sale price — a graded
+            PSA 10 of the same card typically sells for noticeably more.
           </div>
         </section>
       )}
