@@ -96,10 +96,20 @@ function requireAuth(handler) {
    or the '*' route would swallow these paths.
    ============================================================================ */
 
-// All cards (player data + pop), straight from MySQL.
+// Entitled = on a paid tier (trialing counts, since the webhook sets the tier).
+function isEntitled(user) {
+  return Boolean(user) && (user.tier === 'pro' || user.tier === 'elite');
+}
+
+// All cards (player data + pop). Pricing (and therefore the flip targets the
+// client computes from it) is a paid feature — strip `price` for non-subscribers
+// so the paywall is enforced server-side, not just hidden in the UI.
 app.get('/api/cards', async (req, res) => {
   try {
-    res.json({ cards: await getCards() });
+    const entitled = isEntitled(await getSessionUser(req));
+    let cards = await getCards();
+    if (!entitled) cards = cards.map((c) => ({ ...c, price: null }));
+    res.json({ cards, entitled });
   } catch (err) {
     console.error('[api] GET /api/cards failed:', err.message);
     res.status(500).json({ error: 'Failed to load cards' });

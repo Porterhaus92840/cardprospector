@@ -601,7 +601,7 @@ function ScoreBadge({ value, label }) {
   );
 }
 
-function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
+function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro }) {
   // Cards + prices come from the API (MySQL). Rank by flip score (engine
   // conviction blended with raw→PSA10 grading upside); cards without prices
   // fall back to their combined score and sort below priced ones.
@@ -643,14 +643,18 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
                     <span className="text-zinc-500">Sell</span> ${flip.primary.sell.toLocaleString()}
                     <span className="text-zinc-600"> {flip.primaryLabel}</span>
                   </div>
+                ) : !isPro ? (
+                  <div className="text-xs text-orange-400/80 mt-1.5">🔒 Buy / sell targets with Pro</div>
                 ) : (
                   <div className="text-xs text-zinc-500 mt-1.5">
                     Ask ${card.askPrice.toLocaleString()} · price pending
                   </div>
                 )}
-                <div className={`inline-block mt-1.5 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${horizon.cls}`}>
-                  {horizon.label}
-                </div>
+                {isPro && (
+                  <div className={`inline-block mt-1.5 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${horizon.cls}`}>
+                    {horizon.label}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-end gap-1">
                 {flip ? (
@@ -674,7 +678,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch }) {
   );
 }
 
-function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio }) {
+function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio, isPro, onUpgrade }) {
   const { playerSignal, scarcity, combinedScore } = computeCombinedScore(card);
   const comp = findBestComp(card.traits, card.sport);
   const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
@@ -711,14 +715,27 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </div>
       </div>
 
-      {/* Hold horizon */}
-      <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[11px] uppercase tracking-widest text-zinc-500">Hold horizon</span>
-          <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${horizon.cls}`}>{horizon.label}</span>
-        </div>
-        <p className="text-xs text-zinc-400 leading-relaxed">{horizon.blurb}</p>
-      </section>
+      {/* Hold horizon (Pro) — or the paywall for free users */}
+      {isPro ? (
+        <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-[11px] uppercase tracking-widest text-zinc-500">Hold horizon</span>
+            <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${horizon.cls}`}>{horizon.label}</span>
+          </div>
+          <p className="text-xs text-zinc-400 leading-relaxed">{horizon.blurb}</p>
+        </section>
+      ) : (
+        <section className="border border-orange-500/40 bg-orange-500/5 rounded-lg p-4 text-center">
+          <div className="text-sm font-semibold text-orange-300">Unlock the full play</div>
+          <p className="text-xs text-zinc-300 mt-1 mb-3 leading-relaxed">
+            See live raw + graded prices, buy/sell targets, net-after-fees returns by grade, the
+            hold horizon, and your private watchlist. Start a 7-day free trial.
+          </p>
+          <button onClick={onUpgrade} className="bg-orange-500 hover:bg-orange-400 text-zinc-950 font-semibold rounded-lg px-4 py-2 text-sm">
+            Start free trial
+          </button>
+        </section>
+      )}
 
       {/* How the scores are built */}
       <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4 space-y-3">
@@ -1573,7 +1590,9 @@ export default function CardProspector() {
   }, []);
 
   useEffect(() => { saveState(state); }, [state]);
-  useEffect(() => { refetchCards(); }, [refetchCards]);
+  // Refetch cards when the signed-in user changes — entitlement controls
+  // whether the server includes pricing, so logging in/out/upgrading refreshes it.
+  useEffect(() => { refetchCards(); }, [refetchCards, user]);
   useEffect(() => { refetchUser(); }, [refetchUser]);
   useEffect(() => { if (user) refetchWatchlist(); else setWatchlist([]); }, [user, refetchWatchlist]);
   useEffect(() => {
@@ -1599,9 +1618,16 @@ export default function CardProspector() {
     return cards.find((c) => c.id === selectedCardId) || null;
   }, [selectedCardId, cards]);
 
-  // Watchlist is per-account. Toggling while signed out opens the auth modal.
+  const isPro = Boolean(user) && (user.tier === 'pro' || user.tier === 'elite');
+  const promptUpgrade = useCallback(() => {
+    if (!user) setAuthOpen(true);
+    else setUpgradeOpen(true);
+  }, [user]);
+
+  // Watchlist is a paid feature. Signed out → auth; free tier → upgrade.
   const toggleWatch = useCallback((id) => {
     if (!user) { setAuthOpen(true); return; }
+    if (!isPro) { setUpgradeOpen(true); return; }
     setWatchlist((w) => {
       const has = w.includes(id);
       fetch('/api/watchlist', {
@@ -1611,7 +1637,7 @@ export default function CardProspector() {
       }).catch(() => {});
       return has ? w.filter((x) => x !== id) : [...w, id];
     });
-  }, [user]);
+  }, [user, isPro]);
 
   const addToPortfolio = useCallback((id) => {
     setState((s) => {
@@ -1698,6 +1724,8 @@ export default function CardProspector() {
             isWatched={watchlist.includes(selectedCard.id)}
             onToggleWatch={toggleWatch}
             onAddToPortfolio={addToPortfolio}
+            isPro={isPro}
+            onUpgrade={promptUpgrade}
           />
         ) : tab === 'scout' ? (
           <ScoutTab
@@ -1705,6 +1733,8 @@ export default function CardProspector() {
             onSelectCard={setSelectedCardId}
             watchlist={watchlist}
             onToggleWatch={toggleWatch}
+            isPro={isPro}
+            onUpgrade={promptUpgrade}
           />
         ) : tab === 'learn' ? (
           <LearnTab sport={sport} />
