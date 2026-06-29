@@ -22,7 +22,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 const CONFIG = {
   // Get this from partnernetwork.ebay.com after approval (Campaign ID).
   // Format is usually a long numeric string. Used as `mkcid=1&mkrid=...&campid=YOUR_ID`.
-  EPN_CAMPAIGN_ID: 'YOUR_EPN_CAMPAIGN_ID',
+  EPN_CAMPAIGN_ID: '5339158521',
   EPN_GEO: 'US', // your audience geo; affects which eBay site to link to
   // PSA API token (Bearer). Get from psacard.com/publicapi after registration.
   // Used for portfolio cert verification only — pop data is NOT in this API.
