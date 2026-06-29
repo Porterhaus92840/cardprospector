@@ -564,6 +564,29 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         </div>
       </div>
 
+      {/* Recent market price — only shows once the price refresh job has data */}
+      {card.price && (
+        <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
+          <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
+            Recent market price
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold tabular-nums">
+              ${card.price.latest.toLocaleString()}
+            </span>
+            {card.price.change30d != null && (
+              <span className={`text-sm font-medium ${card.price.change30d >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {card.price.change30d >= 0 ? '▲' : '▼'} {Math.abs(card.price.change30d)}% · 30d
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-zinc-500 mt-1">
+            {card.price.source === 'mock' ? 'Sample data (not live)' : `Source: ${card.price.source}`}
+            {card.price.sampleSize ? ` · ${card.price.sampleSize} recent sales` : ''} · as of {card.price.asOf}
+          </div>
+        </section>
+      )}
+
       {/* Archetype match */}
       <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
         <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">

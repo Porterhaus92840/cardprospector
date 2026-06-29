@@ -51,6 +51,22 @@ const CREATE_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 
+const CREATE_PRICE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS price_history (
+    id           BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    card_id      VARCHAR(64)  NOT NULL,
+    source       VARCHAR(32)  NOT NULL,
+    price        DECIMAL(12,2) NOT NULL,
+    currency     CHAR(3)      NOT NULL DEFAULT 'USD',
+    sample_size  INT          NULL,
+    observed_on  DATE         NOT NULL,
+    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_card_day_source (card_id, observed_on, source),
+    KEY idx_card_observed (card_id, observed_on),
+    CONSTRAINT fk_price_card FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
 /** Map a DB row to the shape the frontend already expects. */
 function rowToCard(row) {
   const traits = typeof row.traits === 'string' ? JSON.parse(row.traits) : row.traits;
@@ -78,6 +94,7 @@ function rowToCard(row) {
 /** Create the schema and seed from JSON if the table is empty. Idempotent. */
 export async function initDb() {
   await pool.query(CREATE_TABLE_SQL);
+  await pool.query(CREATE_PRICE_TABLE_SQL);
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -118,10 +135,65 @@ export async function initDb() {
   }
 }
 
-/** All cards, in display order, mapped to the frontend card shape. */
+/**
+ * Per-card price summary from price_history: latest snapshot + 30-day change.
+ * Returns an object keyed by card_id. Empty until the refresh job has run.
+ */
+export async function getPriceSummaries() {
+  const [latest] = await pool.query(`
+    SELECT ph.card_id, ph.price, ph.currency, ph.source, ph.sample_size, ph.observed_on
+      FROM price_history ph
+      JOIN (SELECT card_id, MAX(observed_on) AS mx FROM price_history GROUP BY card_id) m
+        ON ph.card_id = m.card_id AND ph.observed_on = m.mx
+  `);
+  const [prior] = await pool.query(`
+    SELECT ph.card_id, ph.price
+      FROM price_history ph
+      JOIN (
+        SELECT card_id, MAX(observed_on) AS mx
+          FROM price_history
+         WHERE observed_on <= (CURRENT_DATE - INTERVAL 30 DAY)
+         GROUP BY card_id
+      ) m ON ph.card_id = m.card_id AND ph.observed_on = m.mx
+  `);
+
+  const priorMap = {};
+  for (const r of prior) priorMap[r.card_id] = Number(r.price);
+
+  const out = {};
+  for (const r of latest) {
+    const price = Number(r.price);
+    const p30 = priorMap[r.card_id];
+    const asOf = r.observed_on instanceof Date
+      ? r.observed_on.toISOString().slice(0, 10)
+      : String(r.observed_on);
+    out[r.card_id] = {
+      latest: price,
+      currency: r.currency,
+      source: r.source,
+      sampleSize: r.sample_size,
+      asOf,
+      change30d: p30 ? Math.round(((price - p30) / p30) * 1000) / 10 : null,
+    };
+  }
+  return out;
+}
+
+/** All cards, in display order, mapped to the frontend card shape (+ price). */
 export async function getCards() {
   const [rows] = await pool.query('SELECT * FROM cards ORDER BY sort_order ASC, player ASC');
-  return rows.map(rowToCard);
+  const prices = await getPriceSummaries();
+  return rows.map((r) => ({ ...rowToCard(r), price: prices[r.id] || null }));
+}
+
+/** Record (upsert) one daily price snapshot for a card. */
+export async function recordPrice(cardId, { source, price, currency = 'USD', sampleSize = null, observedOn }) {
+  await pool.query(
+    `INSERT INTO price_history (card_id, source, price, currency, sample_size, observed_on)
+     VALUES (?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE price=VALUES(price), currency=VALUES(currency), sample_size=VALUES(sample_size)`,
+    [cardId, source, price, currency, sampleSize, observedOn]
+  );
 }
 
 /**
