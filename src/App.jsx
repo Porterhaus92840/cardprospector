@@ -838,7 +838,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio 
         <div className="text-base font-semibold">{comp.archetype.name}</div>
         <div className="text-xs text-zinc-400 mb-3">{comp.archetype.era}</div>
         <div className="text-xs text-zinc-300 leading-relaxed">
-          The strongest historical pattern this card maps to. Comp is not a prediction —
+          The strongest historical pattern this card maps to. This comparison is not a prediction —
           it's a framework: if {card.player}'s career continues to resemble {comp.archetype.name}'s
           development on the traits below, the card has a credible path to premium status.
         </div>
