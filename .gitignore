@@ -7,3 +7,6 @@ dist
 *.log
 .vite
 .vercel
+
+# Stray nested working copy where V2 files were dropped offline (not part of the deploy)
+Card Prospector Alpha/
