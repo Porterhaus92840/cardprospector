@@ -29,6 +29,12 @@ const CONFIG = {
   PSA_API_TOKEN: '',
   // Gate the Admin panel. Replace with something only you know.
   ADMIN_PASSPHRASE: 'change-me-before-launch',
+  // Where the footer "Send feedback" link points. Consider a dedicated
+  // address (e.g. hello@cardprospector.app) instead of a personal inbox.
+  CONTACT_EMAIL: 'daleporter2009@yahoo.com',
+  // Newsletter signup form URL (ConvertKit / Substack / Beehiiv). When empty,
+  // the email CTA falls back to a mailto. Wire a real provider in Stage 2.
+  NEWSLETTER_URL: '',
 };
 
 const STORAGE_KEY = 'cardprospector:v2';
@@ -361,9 +367,14 @@ function Header({ sport, onSportChange }) {
   return (
     <header className="px-4 pt-5 pb-3 border-b border-zinc-800">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">
-          Card<span className="text-orange-500">Prospector</span>
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight">
+            Card<span className="text-orange-500">Prospector</span>
+          </h1>
+          <span className="text-[9px] font-bold uppercase tracking-widest bg-orange-500/20 text-orange-400 border border-orange-500/40 rounded px-1.5 py-0.5">
+            Beta
+          </span>
+        </div>
         <select
           value={sport}
           onChange={(e) => onSportChange(e.target.value)}
@@ -832,6 +843,49 @@ function AdminPanel({ popOverrides, onUpdatePopOverride, onClose }) {
   );
 }
 
+function SiteFooter() {
+  const feedbackHref = `mailto:${CONFIG.CONTACT_EMAIL}?subject=${encodeURIComponent('CardProspector feedback')}`;
+  const subscribeExternal = Boolean(CONFIG.NEWSLETTER_URL);
+  const subscribeHref = subscribeExternal
+    ? CONFIG.NEWSLETTER_URL
+    : `mailto:${CONFIG.CONTACT_EMAIL}?subject=${encodeURIComponent('Subscribe me to CardProspector updates')}`;
+
+  return (
+    <footer className="px-4 pt-4 pb-8 mt-4 border-t border-zinc-900 space-y-4">
+      {/* Email signup CTA */}
+      <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4 text-center">
+        <div className="text-sm font-semibold">This is just the start.</div>
+        <div className="text-xs text-zinc-400 mt-1 mb-3">
+          Get an email when CardProspector gets better — new players, live pricing, alerts.
+        </div>
+        <a
+          href={subscribeHref}
+          {...(subscribeExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          className="inline-block bg-orange-500 hover:bg-orange-400 text-zinc-950 font-semibold rounded-lg px-4 py-2 text-sm"
+        >
+          Email me when this gets better
+        </a>
+      </div>
+
+      {/* Disclaimer + feedback */}
+      <div className="text-[11px] leading-relaxed text-zinc-500 text-center space-y-2">
+        <p>
+          <span className="text-zinc-400 font-medium">Not financial advice.</span>{' '}
+          CardProspector surfaces pattern-based hypotheses, not predictions. Card values are
+          volatile and you can lose money. Always do your own research before buying.
+        </p>
+        <p>
+          <a href={feedbackHref} className="text-orange-400/80 hover:text-orange-400 underline">
+            Send feedback
+          </a>
+          <span className="mx-1.5">·</span>
+          <span>CardProspector · Beta</span>
+        </p>
+      </div>
+    </footer>
+  );
+}
+
 function BottomNav({ tab, onTabChange, onOpenAdmin }) {
   const tabs = [
     { id: 'scout',     label: 'Scout' },
@@ -954,6 +1008,8 @@ export default function CardProspector() {
             onRemove={removeFromPortfolio}
           />
         )}
+
+        {!selectedCard && (tab === 'scout' || tab === 'learn') && <SiteFooter />}
       </main>
 
       <BottomNav
