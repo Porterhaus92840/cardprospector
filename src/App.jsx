@@ -202,6 +202,84 @@ const FEATURED_CARDS_SEED = [
     pop: { psa10: 18, psa10_30d_prior: 14, listings_active: 3 },
     bearCase: "Nationals market discount is the live risk. Soto-style narrative requires either a deep playoff run with Washington or a trade to NYY/LAD.",
   },
+  {
+    id: 'skenes-topps-chrome-gold-auto',
+    sport: 'baseball',
+    player: 'Paul Skenes',
+    team: 'Pirates',
+    position: 'SP',
+    set: '2024 Topps Chrome Rookie Auto',
+    variantId: 'auto_gold',
+    askPrice: 3200,
+    traits: { hof: 78, peak: 96, market: 45, position: 45, narrative: 92, unique: 95, longevity: 58 },
+    pop: { psa10: 22, psa10_30d_prior: 19, listings_active: 5 },
+    bearCase: "Pitcher attrition is the whole risk — one elbow re-rates this overnight. Pittsburgh also caps national demand; the ceiling needs a trade or a deep October run to fully unlock.",
+  },
+  {
+    id: 'dominguez-bowman-chrome-blue',
+    sport: 'baseball',
+    player: 'Jasson Domínguez',
+    team: 'Yankees',
+    position: 'CF',
+    set: '2019 Bowman Chrome Prospect Auto',
+    variantId: 'blue',
+    askPrice: 520,
+    traits: { hof: 74, peak: 80, market: 100, position: 95, narrative: 90, unique: 76, longevity: 75 },
+    pop: { psa10: 64, psa10_30d_prior: 58, listings_active: 14 },
+    bearCase: "Hype ('The Martian') has run ahead of production for years. If he settles in as an average regular, the Yankees market premium can't carry the card by itself.",
+  },
+  {
+    id: 'anthony-bowman-chrome-orange',
+    sport: 'baseball',
+    player: 'Roman Anthony',
+    team: 'Red Sox',
+    position: 'LF',
+    set: '2022 Bowman Draft Chrome Auto',
+    variantId: 'orange',
+    askPrice: 950,
+    traits: { hof: 80, peak: 82, market: 90, position: 55, narrative: 80, unique: 80, longevity: 76 },
+    pop: { psa10: 16, psa10_30d_prior: 13, listings_active: 4 },
+    bearCase: "Corner-OF profile leans entirely on the bat — there's no position cushion. If the in-game power lands below the projection, the comp set shrinks fast.",
+  },
+  {
+    id: 'caminero-bowman-chrome-green',
+    sport: 'baseball',
+    player: 'Junior Caminero',
+    team: 'Rays',
+    position: '3B',
+    set: '2023 Bowman Chrome Prospect Auto',
+    variantId: 'green',
+    askPrice: 300,
+    traits: { hof: 76, peak: 88, market: 40, position: 60, narrative: 70, unique: 82, longevity: 72 },
+    pop: { psa10: 121, psa10_30d_prior: 96, listings_active: 19 },
+    bearCase: "Rays market is the structural drag and pop is growing fast (supply flooding in). Elite power plays anywhere, but national demand needs a trade or a postseason stage.",
+  },
+  {
+    id: 'pca-bowman-chrome-refractor-psa10',
+    sport: 'baseball',
+    player: 'Pete Crow-Armstrong',
+    team: 'Cubs',
+    position: 'CF',
+    set: '2021 Bowman Chrome Prospect Auto',
+    variantId: 'refractor_psa10',
+    askPrice: 240,
+    traits: { hof: 72, peak: 80, market: 80, position: 95, narrative: 75, unique: 90, longevity: 78 },
+    pop: { psa10: 58, psa10_30d_prior: 49, listings_active: 12 },
+    bearCase: "Value is glove-first. If the bat stays below-average, the card is a defensive-highlight novelty rather than a premium long-term hold.",
+  },
+  {
+    id: 'salas-bowman-chrome-gold',
+    sport: 'baseball',
+    player: 'Ethan Salas',
+    team: 'Padres',
+    position: 'C',
+    set: '2023 Bowman Chrome Prospect Auto',
+    variantId: 'gold',
+    askPrice: 680,
+    traits: { hof: 76, peak: 78, market: 60, position: 100, narrative: 82, unique: 80, longevity: 64 },
+    pop: null,
+    bearCase: "Catcher development is slow and nonlinear — he's years from MLB impact, and the position carries real longevity and injury risk that the narrative score currently underweights.",
+  },
 ];
 
 /* ============================================================================
@@ -265,7 +343,7 @@ function computeScarcityMultiplier(card) {
   const popGrowthRate = card.pop.psa10_30d_prior > 0
     ? popDelta / card.pop.psa10_30d_prior
     : 0;
-  // Velocity adjustment: -0.15 to +0.20 on the base rarity multiplier.
+  // Velocity adjustment: -0.15 to +0.15 on the base rarity multiplier.
   // High growth (lots of new slabs) compresses the multiplier; low growth amplifies it.
   let velocityAdj = 0;
   if (popGrowthRate < 0.05) velocityAdj = 0.15;       // <5% growth in 30d = scarce
@@ -284,9 +362,10 @@ function computeCombinedScore(card) {
   const playerSignal = computePlayerSignal(card);
   const scarcity = computeScarcityMultiplier(card);
   // Combined score: player signal scaled by scarcity, normalized to 0-100.
-  // Max possible: 100 player × 3.20 scarcity = 320 → normalize by dividing by 3.20.
+  // True max multiplier = 3.00 ladder (Superfractor 1/1) + 0.15 velocity = 3.15,
+  // so a perfect-signal card with verified scarcity can reach ~100.
   const raw = playerSignal * scarcity.multiplier;
-  const normalized = Math.min(100, Math.round(raw / 3.20));
+  const normalized = Math.min(100, Math.round(raw / 3.15));
   return { playerSignal, scarcity, combinedScore: normalized };
 }
 
