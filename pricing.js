@@ -30,9 +30,35 @@ const mockProvider = {
   },
 };
 
-// Placeholder for the real source. Implement fetchPrice() against eBay
-// Marketplace Insights (sold comps) or a paid card-data API once a key exists.
-// Read credentials from process.env (e.g. EBAY_OAUTH_TOKEN) — never hardcode.
+// SportsCardsPro — each card stores its product id (sportscardsproId). We read
+// the ungraded ("loose-price") value, in pennies, plus sales-volume as the
+// sample size. Token comes from SCP_TOKEN in the server .env.
+const sportscardsproProvider = {
+  name: 'sportscardspro',
+  async fetchPrice(card) {
+    const id = card.sportscardsproId;
+    if (!id) return null; // card not mapped to a product → skip
+    const token = process.env.SCP_TOKEN;
+    if (!token) throw new Error('SCP_TOKEN not set');
+
+    const res = await fetch(`https://www.sportscardspro.com/api/product?id=${encodeURIComponent(id)}&t=${token}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    if (d.status !== 'success') throw new Error(`status ${d.status}`);
+
+    const cents = d['loose-price'];
+    if (cents == null) return null; // no ungraded comp → keep prior snapshot
+    return {
+      source: 'sportscardspro',
+      price: Math.round(cents) / 100, // pennies → dollars (keeps cents)
+      currency: 'USD',
+      sampleSize: d['sales-volume'] ?? null,
+    };
+  },
+};
+
+// Placeholder for eBay's Marketplace Insights (sold comps), if ever needed
+// alongside SportsCardsPro. Read credentials from process.env — never hardcode.
 const ebayProvider = {
   name: 'ebay',
   async fetchPrice() {
@@ -43,6 +69,7 @@ const ebayProvider = {
 export function getProvider() {
   const name = (process.env.PRICE_PROVIDER || '').toLowerCase();
   if (name === 'mock') return mockProvider;
+  if (name === 'sportscardspro') return sportscardsproProvider;
   if (name === 'ebay') return ebayProvider;
   return null; // no provider configured → refresh job is a safe no-op
 }

@@ -39,6 +39,7 @@ const CREATE_TABLE_SQL = `
     card_set             VARCHAR(160),
     variant_id           VARCHAR(48),
     ask_price            INT,
+    sportscardspro_id    VARCHAR(16)  NULL,
     traits               JSON         NOT NULL,
     bear_case            TEXT,
     pop_psa10            INT          NULL,
@@ -79,6 +80,7 @@ function rowToCard(row) {
     set: row.card_set,
     variantId: row.variant_id,
     askPrice: row.ask_price,
+    sportscardsproId: row.sportscardspro_id,
     traits,
     pop: row.has_pop
       ? {
@@ -112,11 +114,12 @@ export async function initDb() {
       await conn.query(
         `INSERT INTO cards
           (id, sport, player, team, position, card_set, variant_id, ask_price,
-           traits, bear_case, pop_psa10, pop_psa10_30d_prior, pop_listings_active,
-           has_pop, sort_order)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           sportscardspro_id, traits, bear_case, pop_psa10, pop_psa10_30d_prior,
+           pop_listings_active, has_pop, sort_order)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           c.id, c.sport, c.player, c.team, c.position, c.set, c.variantId, c.askPrice,
+          c.sportscardsproId ?? null,
           JSON.stringify(c.traits), c.bearCase,
           c.pop ? c.pop.psa10 : null,
           c.pop ? c.pop.psa10_30d_prior : null,

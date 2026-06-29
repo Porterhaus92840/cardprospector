@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import FEATURED_CARDS_SEED from './data/cards.seed.json';
 
 /* ============================================================================
    CARDPROSPECTOR V2
@@ -123,7 +124,10 @@ const SCARCITY_LADDER = [
    both states.
    ============================================================================ */
 
-const FEATURED_CARDS_SEED = [
+// Legacy inline seed — superseded by the cards.seed.json import above and the
+// live /api/cards data. Unused (tree-shaken from the production build); kept
+// only as a reference and removed in a later cleanup.
+const _LEGACY_INLINE_SEED = [
   {
     id: 'langford-bowman-chrome-orange',
     sport: 'baseball',
