@@ -45,6 +45,9 @@ const CONFIG = {
   // Where the footer "Send feedback" link points. Consider a dedicated
   // address (e.g. hello@cardprospector.app) instead of a personal inbox.
   CONTACT_EMAIL: 'daleporter2009@yahoo.com',
+  // Owner account — protected from ban/lock in the Control Console (also enforced
+  // server-side via OWNER_EMAIL in the server .env).
+  OWNER_EMAIL: 'daleporter2009@yahoo.com',
   // Newsletter signup form URL (ConvertKit / Substack / Beehiiv). When empty,
   // the email CTA falls back to a mailto. Wire a real provider in Stage 2.
   NEWSLETTER_URL: '',
@@ -618,6 +621,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
   const [sortBy, setSortBy] = useState('flip');
   const [maxBuy, setMaxBuy] = useState(0); // 0 = any
   const [showLegend, setShowLegend] = useState(false);
+  const [query, setQuery] = useState('');
 
   const rank = { short: 0, mid: 1, long: 2 };
   const comparators = {
@@ -633,6 +637,14 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
     return { card: c, ...cs, flip: computeFlip(c, cs.combinedScore), horizon: computeHorizon(c) };
   });
   if (maxBuy > 0) scored = scored.filter((s) => s.flip && s.flip.targetBuy <= maxBuy);
+  const q = query.trim().toLowerCase();
+  if (q) {
+    scored = scored.filter(({ card }) =>
+      [card.player, card.set, card.cardNumber, card.team]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q))
+    );
+  }
   scored = scored.sort(comparators[sortBy] || comparators.flip);
 
   return (
@@ -642,6 +654,17 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
           Today's prospects · raw → graded flip
         </div>
         <button onClick={onSubmit} className="text-[11px] text-orange-400 hover:text-orange-300 whitespace-nowrap">+ Submit a card</button>
+      </div>
+
+      <div className="relative">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search cards — player, set, #, team…"
+          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-8 pr-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-orange-500/50"
+        />
+        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none">⌕</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -682,7 +705,9 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
       )}
 
       {scored.length === 0 && (
-        <div className="text-xs text-zinc-500 text-center py-6">No cards match this filter.</div>
+        <div className="text-xs text-zinc-500 text-center py-6">
+          {q ? `No cards match “${query.trim()}”.` : 'No cards match this filter.'}
+        </div>
       )}
       {scored.map(({ card, combinedScore, flip, horizon }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
@@ -1554,13 +1579,19 @@ function AdminUsers({ adminToken }) {
                   />
                   days — applied when you grant <span className="uppercase">beta</span> (blank/0 = no end date)
                 </div>
-                <button
-                  disabled={busy}
-                  onClick={() => ban(u, !u.banned)}
-                  className={`px-2 py-1 rounded border text-[10px] uppercase tracking-wider disabled:opacity-50 ${u.banned ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10' : 'border-red-500/40 text-red-400 hover:bg-red-500/10'}`}
-                >
-                  {u.banned ? 'Unlock account' : 'Ban / lock account'}
-                </button>
+                {u.email?.toLowerCase() === CONFIG.OWNER_EMAIL.toLowerCase() ? (
+                  <div className="text-[10px] uppercase tracking-wider text-sky-400 border border-sky-500/30 rounded px-2 py-1 inline-block">
+                    ★ Owner account · protected
+                  </div>
+                ) : (
+                  <button
+                    disabled={busy}
+                    onClick={() => ban(u, !u.banned)}
+                    className={`px-2 py-1 rounded border text-[10px] uppercase tracking-wider disabled:opacity-50 ${u.banned ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10' : 'border-red-500/40 text-red-400 hover:bg-red-500/10'}`}
+                  >
+                    {u.banned ? 'Unlock account' : 'Ban / lock account'}
+                  </button>
+                )}
               </div>
             )}
           </div>

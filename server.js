@@ -37,6 +37,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3850;
 const DIST_DIR = path.join(__dirname, 'dist');
+// Owner account — can never be banned/locked (enforced below). Override via .env.
+const OWNER_EMAIL = (process.env.OWNER_EMAIL || 'daleporter2009@yahoo.com').toLowerCase();
 
 // Health check — useful for uptime monitoring and CloudPanel diagnostics
 app.get('/healthz', (req, res) => {
@@ -400,6 +402,13 @@ app.post('/api/admin/users/ban', async (req, res) => {
   const { id, banned } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id required' });
   try {
+    // The owner account can never be locked/banned.
+    if (banned) {
+      const target = await getUserById(id);
+      if (target && (target.email || '').toLowerCase() === OWNER_EMAIL) {
+        return res.status(403).json({ error: 'The owner account cannot be locked.' });
+      }
+    }
     const updated = await setUserBanned(id, Boolean(banned));
     res.json({ ok: true, updated });
   } catch (err) { res.status(500).json({ error: 'Failed' }); }
