@@ -17,12 +17,13 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  initDb, getCards, recordPop, setTagPrice, recordPrice,
+  initDb, getCards, recordPop, setTagPrice, recordPrice, setCardImage,
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
   setStripeCustomer, setSubscription,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
 } from './db.js';
 import { getProvider } from './pricing.js';
+import { searchCardImage } from './ebay.js';
 import {
   hashPassword, verifyPassword, signToken, verifyToken,
   cookieOptions, validCredentials, publicUser, SESSION_COOKIE,
@@ -314,6 +315,11 @@ app.post('/api/admin/submissions/publish', async (req, res) => {
         if (r) await recordPrice(cardId, { ...r, observedOn: new Date().toISOString().slice(0, 10) });
       } catch (e) { console.error('[submissions] price fetch failed:', e.message); }
     }
+    try {
+      const q = `${enriched.player || ''} ${enriched.card_set || ''} ${enriched.card_number || ''}`.replace(/·/g, ' ').replace(/\s+/g, ' ').trim();
+      const img = await searchCardImage(q);
+      if (img?.imageUrl) await setCardImage(cardId, img.imageUrl);
+    } catch (e) { console.error('[submissions] image fetch failed:', e.message); }
     res.json({ ok: true, cardId });
   } catch (err) {
     console.error('[api] publish submission failed:', err.message);

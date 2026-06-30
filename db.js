@@ -42,6 +42,7 @@ const CREATE_TABLE_SQL = `
     ask_price            INT,
     sportscardspro_id    VARCHAR(16)  NULL,
     tag10_price          DECIMAL(12,2) NULL,
+    image_url            VARCHAR(512) NULL,
     traits               JSON         NOT NULL,
     bear_case            TEXT,
     pop_psa10            INT          NULL,
@@ -163,6 +164,7 @@ function rowToCard(row) {
     variantId: row.variant_id,
     askPrice: row.ask_price,
     sportscardsproId: row.sportscardspro_id,
+    image: row.image_url || null,
     traits,
     pop: null, // populated from pop_history in getCards
     bearCase: row.bear_case,
@@ -353,6 +355,11 @@ export async function recordPrice(cardId, { source, priceRaw = null, priceG7 = n
 export async function setTagPrice(cardId, price) {
   const [result] = await pool.query('UPDATE cards SET tag10_price = ? WHERE id = ?', [price, cardId]);
   return result.affectedRows > 0;
+}
+
+/** Cache a card's image URL (from the eBay Browse API). */
+export async function setCardImage(cardId, imageUrl) {
+  await pool.query('UPDATE cards SET image_url = ? WHERE id = ?', [imageUrl, cardId]);
 }
 
 /* ============================================================================

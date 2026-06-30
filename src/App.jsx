@@ -637,7 +637,9 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
             className="w-full text-left bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 rounded-lg p-3 transition"
           >
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
+              <div className="flex gap-2.5 min-w-0">
+                {card.image && <img src={card.image} alt="" loading="lazy" className="w-11 h-[3.9rem] object-cover rounded border border-zinc-800 shrink-0" />}
+                <div className="min-w-0">
                 <div className="font-semibold truncate">{card.player}</div>
                 <div className="text-xs text-zinc-400 truncate">
                   {card.set}{card.cardNumber ? ` · ${card.cardNumber}` : ''}
@@ -661,6 +663,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
                     {horizon.label}
                   </div>
                 )}
+                </div>
               </div>
               <div className="flex flex-col items-end gap-1">
                 {flip ? (
@@ -711,6 +714,12 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
         Our card hypothesis is as follows — a data-driven framework for thinking about this card,
         not financial or investment advice.
       </p>
+
+      {card.image && (
+        <div className="flex justify-center">
+          <img src={card.image} alt={`${card.player} ${card.cardNumber || ''}`.trim()} loading="lazy" className="rounded-lg max-h-56 border border-zinc-800" />
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <ScoreBadge value={combinedScore} label="Combined" />
