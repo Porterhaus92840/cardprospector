@@ -442,6 +442,90 @@ app.post('/api/admin/cards', async (req, res) => {
   }
 });
 
+/* ----------------------------------------------------------------------------
+   AI-assisted trait + warning-signs suggestion (admin-only).
+   Uses the Anthropic API (ANTHROPIC_API_KEY in .env). At admin volume the cost
+   is a few cents per card. Returns 503 (gracefully) when no key is configured.
+   ---------------------------------------------------------------------------- */
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+const TRAIT_KEYS = ['hof', 'peak', 'market', 'position', 'narrative', 'unique', 'longevity'];
+const TRAIT_SCALE = `Score each trait 0-100 on this shared scale:
+- hof (Hall-of-Fame probability): 20=fringe MLB, 50=solid regular no HOF case, 80=multiple All-Star seasons likely, 95=inner-circle/generational.
+- peak (best-season intensity): 20=role-player ceiling, 50=above-average regular, 80=perennial All-Star peak, 95=MVP-tier/historic.
+- market (team national spotlight): 20=small-market, 50=mid-market, 80=large national-spotlight team, 95=Yankees/Dodgers/Lakers-tier marquee.
+- position (positional value premium): 20=low (1B/DH/corner), 50=average (corner OF/2B), 80=premium (C/SS/CF), 95=elite-scarcity premium.
+- narrative (story/cultural resonance): 20=no distinct story, 50=mild hype, 80=strong narrative (intl./comeback/dynasty), 95=generational phenomenon.
+- unique (defining rare skill): 20=ordinary profile, 50=one plus-skill, 80=rare standout tool, 95=singular never-seen skill.
+- longevity (elite-window durability): 20=injury-prone/short runway, 50=average outlook, 80=durable long elite window, 95=iron-man longevity.`;
+
+app.get('/api/admin/ai-config', (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  res.json({ enabled: Boolean(ANTHROPIC_API_KEY) });
+});
+
+app.post('/api/admin/suggest-traits', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(503).json({ error: 'AI suggestions are not configured (set ANTHROPIC_API_KEY in the server .env).' });
+  }
+  const { player, card_set, card_number, team, position, variant } = req.body || {};
+  if (!player) return res.status(400).json({ error: 'player required' });
+  const ctx = [
+    `Player: ${player}`,
+    card_set ? `Set: ${card_set}` : '',
+    card_number ? `Card #: ${card_number}` : '',
+    team ? `Team: ${team}` : '',
+    position ? `Position: ${position}` : '',
+    variant ? `Parallel/variant: ${variant}` : '',
+  ].filter(Boolean).join('\n');
+  const traitProps = Object.fromEntries(TRAIT_KEYS.map((k) => [k, { type: 'integer', minimum: 0, maximum: 100 }]));
+  const rationaleProps = Object.fromEntries(TRAIT_KEYS.map((k) => [k, { type: 'string' }]));
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1024,
+        tool_choice: { type: 'tool', name: 'record_traits' },
+        tools: [{
+          name: 'record_traits',
+          description: 'Record estimated long-term value traits and warning signs for a sports card.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              traits: { type: 'object', properties: traitProps, required: TRAIT_KEYS },
+              rationales: { type: 'object', properties: rationaleProps, required: TRAIT_KEYS },
+              warningSigns: { type: 'string' },
+              confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+            },
+            required: ['traits', 'rationales', 'warningSigns', 'confidence'],
+          },
+        }],
+        system: `You are a sports-card analyst for CardProspector, which flags modern baseball prospects/rookies (year >= ${MIN_CARD_YEAR}) to buy raw, grade, and flip. Estimate 7 long-term card-value traits for the given player/card as integers 0-100, grounded in real, current player knowledge. Be honest and conservative: if the player is obscure or you are unsure, score moderately, set confidence "low", and say so in the rationale. Each rationale is ONE short sentence. warningSigns is a 1-2 sentence plain-English note of risks that would cap the grading-flip upside. ${TRAIT_SCALE}`,
+        messages: [{ role: 'user', content: `Estimate traits for this card:\n${ctx}` }],
+      }),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      console.error('[ai] suggest-traits failed:', resp.status, t.slice(0, 200));
+      return res.status(502).json({ error: `AI request failed (${resp.status})` });
+    }
+    const data = await resp.json();
+    const toolUse = (data.content || []).find((b) => b.type === 'tool_use');
+    if (!toolUse?.input) return res.status(502).json({ error: 'AI returned no suggestion' });
+    res.json({ ok: true, ...toolUse.input });
+  } catch (err) {
+    console.error('[ai] suggest-traits error:', err.message);
+    res.status(500).json({ error: 'Could not reach the AI service.' });
+  }
+});
+
 /* ============================================================================
    BILLING — Stripe Checkout + Customer Portal
    ============================================================================ */

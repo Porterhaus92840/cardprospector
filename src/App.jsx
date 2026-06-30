@@ -1615,11 +1615,59 @@ function AdminCreateCard({ adminToken, onCreated }) {
     sportscardspro_id: '',
     bear_case: '',
   };
+  const freshTraits = () => Object.fromEntries(SUB_TRAITS.map((t) => [t, 70]));
   const [f, setF] = useState(blank);
-  const [traits, setTraits] = useState(Object.fromEntries(SUB_TRAITS.map((t) => [t, 70])));
+  const [traits, setTraits] = useState(freshTraits);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  // AI-assist state
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState(null);
+  const [rationales, setRationales] = useState({});
+  const [confidence, setConfidence] = useState('');
+  const [aiWarning, setAiWarning] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
   const upd = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  useEffect(() => {
+    fetch('/api/admin/ai-config', { headers: { 'x-admin-token': adminToken } })
+      .then((r) => r.json())
+      .then((d) => setAiEnabled(Boolean(d.enabled)))
+      .catch(() => {});
+  }, [adminToken]);
+
+  const suggest = async () => {
+    if (!f.player.trim()) { setAiMsg({ ok: false, text: 'Enter the player first.' }); return; }
+    setAiBusy(true);
+    setAiMsg(null);
+    try {
+      const r = await fetch('/api/admin/suggest-traits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({
+          player: f.player, card_set: f.card_set, card_number: f.card_number,
+          team: f.team, position: f.position, variant: f.variant_id,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setAiMsg({ ok: false, text: d.error || `Failed (${r.status})` });
+      } else {
+        if (d.traits) setTraits((s) => ({ ...s, ...d.traits }));
+        setRationales(d.rationales || {});
+        setConfidence(d.confidence || '');
+        setAiWarning(d.warningSigns || '');
+        if (d.warningSigns && !f.bear_case.trim()) upd('bear_case', d.warningSigns);
+        setAiMsg({ ok: true, text: 'Suggestions filled in — review and edit before saving.' });
+      }
+    } catch {
+      setAiMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const create = async () => {
     if (!f.player.trim()) {
       setMsg({ ok: false, text: 'Player name is required.' });
@@ -1638,7 +1686,11 @@ function AdminCreateCard({ adminToken, onCreated }) {
       else {
         setMsg({ ok: true, text: `Card created (${d.cardId || 'ok'}). Price + image fetch attempted.` });
         setF(blank);
-        setTraits(Object.fromEntries(SUB_TRAITS.map((t) => [t, 70])));
+        setTraits(freshTraits());
+        setRationales({});
+        setConfidence('');
+        setAiWarning('');
+        setAiMsg(null);
         onCreated && onCreated();
       }
     } catch {
@@ -1647,6 +1699,9 @@ function AdminCreateCard({ adminToken, onCreated }) {
       setBusy(false);
     }
   };
+
+  const confColor = { low: 'text-amber-400', medium: 'text-sky-400', high: 'text-emerald-400' }[confidence] || 'text-zinc-400';
+
   return (
     <div className="space-y-2">
       <div className="text-[11px] text-zinc-400 leading-relaxed">
@@ -1666,28 +1721,87 @@ function AdminCreateCard({ adminToken, onCreated }) {
         <input className={INPUT_CLS} placeholder="Position" value={f.position} onChange={(e) => upd('position', e.target.value)} />
       </div>
       <input className={INPUT_CLS} placeholder="SportsCardsPro product ID (price + image)" value={f.sportscardspro_id} onChange={(e) => upd('sportscardspro_id', e.target.value)} />
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500 pt-1">Traits (0–100)</div>
-      <div className="grid grid-cols-4 gap-1.5">
+
+      {/* Traits — anchored rubric + optional AI assist */}
+      <div className="flex items-center justify-between pt-1">
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Traits (0–100)</div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setShowGuide((v) => !v)} className="text-[10px] text-zinc-400 hover:text-zinc-200">
+            ⓘ Scoring guide
+          </button>
+          <button
+            type="button"
+            onClick={suggest}
+            disabled={aiBusy || !aiEnabled || !f.player.trim()}
+            title={aiEnabled ? 'Estimate traits + warning signs with AI' : 'Set ANTHROPIC_API_KEY in the server .env to enable'}
+            className="text-[10px] px-2 py-1 rounded border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+          >
+            {aiBusy ? 'Thinking…' : '✦ Suggest with AI'}
+          </button>
+        </div>
+      </div>
+      {!aiEnabled && (
+        <div className="text-[10px] text-zinc-500">
+          AI suggest is off — add <span className="text-zinc-300">ANTHROPIC_API_KEY</span> to the server .env to enable it. The scoring guide below works without it.
+        </div>
+      )}
+      {confidence && (
+        <div className="text-[10px] text-zinc-500">AI confidence: <span className={`uppercase ${confColor}`}>{confidence}</span> — review every value before saving.</div>
+      )}
+      {showGuide && (
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded p-2 space-y-1.5 text-[10px] text-zinc-400">
+          {SUB_TRAITS.map((t) => (
+            <div key={t}>
+              <span className="text-zinc-200">{TRAIT_RUBRIC[t].label}</span>
+              <div className="text-zinc-500">{TRAIT_RUBRIC[t].anchors.join('  ·  ')}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="space-y-1.5">
         {SUB_TRAITS.map((t) => (
-          <div key={t}>
-            <div className="text-[9px] text-zinc-500 capitalize truncate" title={t}>{t}</div>
-            <input
-              type="number"
-              inputMode="numeric"
-              className="w-full bg-zinc-950 border border-zinc-700 rounded px-1.5 py-1 text-xs text-zinc-100"
-              value={traits[t]}
-              onChange={(e) => setTraits((s) => ({ ...s, [t]: parseInt(e.target.value, 10) || 0 }))}
-            />
+          <div key={t} className="flex items-start gap-2">
+            <div className="w-28 shrink-0 pt-1.5">
+              <div className="text-[11px] text-zinc-300" title={TRAIT_RUBRIC[t].anchors.join('  |  ')}>
+                {TRAIT_RUBRIC[t].label}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <input
+                type="number"
+                inputMode="numeric"
+                className="w-16 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-1 text-xs text-zinc-100"
+                value={traits[t]}
+                onChange={(e) => setTraits((s) => ({ ...s, [t]: parseInt(e.target.value, 10) || 0 }))}
+              />
+              {rationales[t] && (
+                <div className="text-[10px] text-sky-300/80 mt-0.5 leading-snug">{rationales[t]}</div>
+              )}
+            </div>
           </div>
         ))}
       </div>
+      {aiMsg && (
+        <div className={`text-xs rounded p-2 ${aiMsg.ok ? 'bg-sky-500/10 border border-sky-500/30 text-sky-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
+          {aiMsg.text}
+        </div>
+      )}
+
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500 pt-1">Warning signs to watch</div>
       <textarea
         className={INPUT_CLS}
-        rows={2}
-        placeholder="Warning signs to watch (optional)"
+        rows={3}
+        placeholder="Risks that would cap the upside (optional)"
         value={f.bear_case}
         onChange={(e) => upd('bear_case', e.target.value)}
       />
+      {aiWarning && aiWarning !== f.bear_case && (
+        <div className="text-[10px] bg-sky-500/5 border border-sky-500/20 rounded p-2 text-zinc-300 leading-snug">
+          <span className="text-sky-300/80">AI draft: </span>{aiWarning}
+          <button type="button" onClick={() => upd('bear_case', aiWarning)} className="ml-1 underline text-sky-300 hover:text-sky-200">Use this</button>
+        </div>
+      )}
+
       <button onClick={create} disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
         {busy ? 'Creating…' : 'Create card'}
       </button>
@@ -2047,6 +2161,18 @@ function SubmissionModal({ onClose }) {
 }
 
 const SUB_TRAITS = ['hof', 'peak', 'market', 'position', 'narrative', 'unique', 'longevity'];
+
+// Anchored scoring guide shown in the Control Console so trait scores are
+// consistent and defensible (not just opinion). Mirrors the server AI rubric.
+const TRAIT_RUBRIC = {
+  hof:       { label: 'HOF probability', anchors: ['20 — fringe MLB / org filler', '50 — solid regular, no HOF case', '80 — multiple All-Star seasons likely', '95 — inner-circle / generational'] },
+  peak:      { label: 'Peak intensity',  anchors: ['20 — role-player ceiling', '50 — above-average regular', '80 — perennial All-Star peak', '95 — MVP-tier / historic'] },
+  market:    { label: 'Market spotlight', anchors: ['20 — small-market', '50 — mid-market', '80 — large national-spotlight team', '95 — Yankees/Dodgers/Lakers-tier'] },
+  position:  { label: 'Position premium', anchors: ['20 — low (1B/DH/corner)', '50 — average (corner OF/2B)', '80 — premium (C/SS/CF)', '95 — elite-scarcity premium'] },
+  narrative: { label: 'Narrative / story', anchors: ['20 — no distinct story', '50 — mild hype', '80 — strong narrative (intl./comeback/dynasty)', '95 — generational phenomenon'] },
+  unique:    { label: 'Unique skill',    anchors: ['20 — ordinary profile', '50 — one plus-skill', '80 — rare standout tool', '95 — singular (e.g. two-way)'] },
+  longevity: { label: 'Longevity',       anchors: ['20 — injury-prone / short runway', '50 — average outlook', '80 — durable long elite window', '95 — iron-man longevity'] },
+};
 
 function SubmissionReview({ sub, adminToken, onDone }) {
   const [f, setF] = useState({
