@@ -385,6 +385,12 @@ export async function getUserById(id) {
   return row || null;
 }
 
+/** Set a user's tier by email (admin comp / beta grant). Returns true if found. */
+export async function setUserTierByEmail(email, tier) {
+  const [r] = await pool.query('UPDATE users SET tier = ? WHERE email = ?', [tier, email.toLowerCase()]);
+  return r.affectedRows > 0;
+}
+
 /** Card ids on a user's watchlist. */
 export async function getWatchlist(userId) {
   const [rows] = await pool.query('SELECT card_id FROM watchlists WHERE user_id = ?', [userId]);

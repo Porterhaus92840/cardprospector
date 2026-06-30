@@ -1360,6 +1360,7 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
         </div>
 
         <AdminSubmissions adminToken={adminToken} onPublished={onSaved} />
+        <AdminUserAccess adminToken={adminToken} />
       </div>
     </div>
   );
@@ -1720,6 +1721,49 @@ function SubmissionReview({ sub, adminToken, onDone }) {
   );
 }
 
+function AdminUserAccess({ adminToken }) {
+  const [email, setEmail] = useState('');
+  const [tier, setTier] = useState('beta');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const set = async () => {
+    if (!email.trim()) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch('/api/admin/set-tier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ email: email.trim(), tier }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) setMsg({ ok: false, text: d.error || 'Failed' });
+      else setMsg({ ok: d.updated, text: d.updated ? `${email.trim()} → ${tier}` : 'No user with that email.' });
+    } catch { setMsg({ ok: false, text: 'Server error' }); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="mt-6 pt-4 border-t border-zinc-800 space-y-2">
+      <div className="text-[11px] uppercase tracking-widest text-zinc-500">User access · beta / comp</div>
+      <div className="text-[11px] text-zinc-400 leading-relaxed">
+        Grant a user free full access: <span className="text-zinc-300">beta</span> (free during the beta) or comp them
+        pro/elite. Set to <span className="text-zinc-300">free</span> to revoke. By email.
+      </div>
+      <div className="flex gap-2">
+        <input className={INPUT_CLS} placeholder="user@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <select className="bg-zinc-900 border border-zinc-700 rounded px-2 text-sm" value={tier} onChange={(e) => setTier(e.target.value)}>
+          <option value="beta">beta</option>
+          <option value="pro">pro</option>
+          <option value="elite">elite</option>
+          <option value="free">free</option>
+        </select>
+        <button onClick={set} disabled={busy} className="bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-medium rounded px-3 text-sm">{busy ? '…' : 'Set'}</button>
+      </div>
+      {msg && <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-orange-500/10 border border-orange-500/30 text-orange-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>{msg.text}</div>}
+    </div>
+  );
+}
+
 function AdminSubmissions({ adminToken, onPublished }) {
   const [subs, setSubs] = useState([]);
   const load = useCallback(async () => {
@@ -1825,7 +1869,7 @@ export default function CardProspector() {
     return cards.find((c) => c.id === selectedCardId) || null;
   }, [selectedCardId, cards]);
 
-  const isPro = Boolean(user) && (user.tier === 'pro' || user.tier === 'elite');
+  const isPro = Boolean(user) && (user.tier === 'pro' || user.tier === 'elite' || user.tier === 'beta');
   const promptUpgrade = useCallback(() => {
     if (!user) setAuthOpen(true);
     else setUpgradeOpen(true);
@@ -1910,12 +1954,16 @@ export default function CardProspector() {
         {user ? (
           <div className="flex items-center gap-2 text-zinc-400">
             <span className="truncate max-w-[120px]">{user.email}</span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider border ${user.tier === 'elite' ? 'bg-orange-500/20 text-orange-300 border-orange-500/40' : user.tier === 'pro' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' : 'bg-zinc-700/40 text-zinc-400 border-zinc-600/40'}`}>
+            <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider border ${user.tier === 'elite' ? 'bg-orange-500/20 text-orange-300 border-orange-500/40' : user.tier === 'pro' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' : user.tier === 'beta' ? 'bg-sky-500/15 text-sky-400 border-sky-500/40' : 'bg-zinc-700/40 text-zinc-400 border-zinc-600/40'}`}>
               {user.tier}
             </span>
-            {billingEnabled && (user.tier === 'free'
-              ? <button onClick={() => setUpgradeOpen(true)} className="text-orange-400 hover:text-orange-300 font-medium">Upgrade</button>
-              : <button onClick={manageBilling} className="text-zinc-300 hover:text-white">Manage</button>)}
+            {billingEnabled && (
+              user.tier === 'free'
+                ? <button onClick={() => setUpgradeOpen(true)} className="text-orange-400 hover:text-orange-300 font-medium">Upgrade</button>
+                : (user.tier === 'pro' || user.tier === 'elite')
+                  ? <button onClick={manageBilling} className="text-zinc-300 hover:text-white">Manage</button>
+                  : null
+            )}
             <span className="text-zinc-600">·</span>
             <button onClick={signOut} className="text-zinc-400 hover:text-zinc-200">Sign out</button>
           </div>

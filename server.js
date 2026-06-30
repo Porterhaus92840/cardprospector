@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 import {
   initDb, getCards, recordPop, setTagPrice, recordPrice, setCardImage,
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
-  setStripeCustomer, setSubscription,
+  setStripeCustomer, setSubscription, setUserTierByEmail,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
 } from './db.js';
 import { getProvider } from './pricing.js';
@@ -100,9 +100,10 @@ function requireAuth(handler) {
    or the '*' route would swallow these paths.
    ============================================================================ */
 
-// Entitled = on a paid tier (trialing counts, since the webhook sets the tier).
+// Entitled = on a paid tier or a comped/beta tier (trialing counts too, since
+// the webhook sets the tier).
 function isEntitled(user) {
-  return Boolean(user) && (user.tier === 'pro' || user.tier === 'elite');
+  return Boolean(user) && (user.tier === 'pro' || user.tier === 'elite' || user.tier === 'beta');
 }
 
 // All cards (player data + pop). Pricing (and therefore the flip targets the
@@ -334,6 +335,22 @@ app.post('/api/admin/submissions/reject', async (req, res) => {
   res.json({ ok: await rejectSubmission(id, reviewNote) });
 });
 
+// Set a user's tier by email — comp/beta/grant or reset. 'beta' = free full access.
+app.post('/api/admin/set-tier', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { email, tier } = req.body || {};
+  if (!email || !['free', 'beta', 'pro', 'elite'].includes(tier)) {
+    return res.status(400).json({ error: 'email and a valid tier (free/beta/pro/elite) required' });
+  }
+  try {
+    const updated = await setUserTierByEmail(email, tier);
+    res.json({ ok: true, updated });
+  } catch (err) {
+    console.error('[api] set-tier failed:', err.message);
+    res.status(500).json({ error: 'Could not set tier' });
+  }
+});
+
 /* ============================================================================
    BILLING — Stripe Checkout + Customer Portal
    ============================================================================ */
@@ -360,7 +377,12 @@ app.post('/api/billing/checkout', requireAuth(async (req, res, user) => {
       mode: 'subscription',
       customer: customerId,
       line_items: [{ price, quantity: 1 }],
-      subscription_data: { trial_period_days: TRIAL_DAYS },
+      subscription_data: {
+        trial_period_days: TRIAL_DAYS,
+        // No card up front: if they never add one, the trial just ends (no charge).
+        trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
+      },
+      payment_method_collection: 'if_required',
       allow_promotion_codes: true,
       success_url: `${APP_URL()}/?upgraded=1`,
       cancel_url: `${APP_URL()}/?checkout=cancelled`,

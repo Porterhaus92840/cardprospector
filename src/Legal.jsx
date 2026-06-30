@@ -7,9 +7,8 @@ import React from 'react';
    on them. Update the four constants below with your real details.
    ============================================================================ */
 
-// >>> UPDATE THESE <<<
-const OPERATOR = 'CardProspector'; // legal operator — e.g. "Dale Porter" or "CardProspector LLC"
-const JURISDICTION = 'the State of [STATE], United States'; // governing-law state
+const OPERATOR = 'Dale Porter';
+const JURISDICTION = 'the Commonwealth of Pennsylvania, United States';
 const EFFECTIVE = 'June 30, 2026';
 const CONTACT = 'daleporter2009@yahoo.com';
 
@@ -56,7 +55,8 @@ function Terms() {
       <H2>4. Subscriptions, trials & billing</H2>
       <UL>
         <LI>Paid plans (e.g., Pro, Elite) are billed on a recurring monthly or annual basis through our payment processor, Stripe.</LI>
-        <LI>Paid plans may start with a free trial. If you don't cancel before the trial ends, you'll be charged automatically for the plan you selected.</LI>
+        <LI>Paid plans may start with a free trial. We don't require a payment method to begin the trial. Before the trial ends we'll ask you to add one to continue; if you don't, the subscription simply doesn't start and you are not charged.</LI>
+        <LI>During our beta period, we may grant complimentary access to invited beta testers. Beta access is free and may end when the beta concludes, after which continued use requires a paid subscription.</LI>
         <LI>Subscriptions renew automatically until cancelled. You can cancel anytime via the billing portal (Manage → Stripe); access continues through the end of the paid period.</LI>
         <LI>We may change prices or plan features prospectively; we'll give reasonable notice, and changes take effect on your next billing cycle.</LI>
         <LI>Refunds are governed by our <a className="text-orange-400 underline" href="/refunds">Refund Policy</a>.</LI>
@@ -187,7 +187,7 @@ function Refunds() {
       <Eff />
 
       <H2>Free trial</H2>
-      <P>Paid plans start with a 7-day free trial. You won't be charged if you cancel before the trial ends. Cancel anytime from the billing portal (Manage → Stripe).</P>
+      <P>Paid plans start with a 7-day free trial, and we don't require a credit card to begin it. You're only charged if you add a payment method and choose to continue past the trial. Beta testers receive free access for the duration of the beta period.</P>
 
       <H2>Subscriptions</H2>
       <P>
