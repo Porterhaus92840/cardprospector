@@ -778,11 +778,11 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
 
       {card.image && (
         <div className="flex justify-center">
-          <img src={card.image} alt={`${card.player} ${card.cardNumber || ''}`.trim()} loading="lazy" className="rounded-lg max-h-56 border border-zinc-800" />
+          <img src={card.image} alt={`${card.player} ${card.cardNumber || ''}`.trim()} loading="lazy" className="rounded-lg max-h-56 max-w-full border border-zinc-800" />
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <ScoreBadge value={combinedScore} label="Combined" />
         <ScoreBadge value={playerSignal} label="Player" />
         <div className="inline-flex items-baseline gap-1.5 px-2 py-1 rounded border bg-zinc-800/60 border-zinc-700 text-zinc-300">
@@ -2009,7 +2009,7 @@ export default function CardProspector() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div className="min-h-screen w-full overflow-x-hidden bg-zinc-950 text-zinc-100 flex flex-col" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Account bar */}
       <div className="px-4 py-1.5 bg-zinc-900/50 border-b border-zinc-800 flex justify-end items-center text-xs">
         {user ? (
