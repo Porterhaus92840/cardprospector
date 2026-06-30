@@ -36,6 +36,9 @@ const CONFIG = {
   GRADING_COST: 22,          // TAG Basic, $/card
   EBAY_FEE_RATE: 0.136,      // eBay final value fee
   EBAY_PER_ORDER_FEE: 0.40,
+  // Scope: the engine targets modern prospects/rookies (realistic PSA-10 gem
+  // rates + room to grow). Older/vintage breaks the flip + growth model.
+  MIN_CARD_YEAR: 2010,
   // NOTE: the admin gate now lives server-side (ADMIN_TOKEN in the server .env),
   // verified via POST /api/admin/verify — not in this public bundle.
   // Where the footer "Send feedback" link points. Consider a dedicated
@@ -987,6 +990,10 @@ function LearnTab({ sport }) {
           seven traits. CardProspector scores current players against these archetypes and
           combines that with real scarcity data to surface cards with credible upside.
         </p>
+        <p className="text-xs text-zinc-400 leading-relaxed mt-2">
+          Scope: this is built for <span className="text-zinc-300">modern prospects & rookies ({CONFIG.MIN_CARD_YEAR}–present)</span> —
+          recent cards with realistic grading upside and room to grow, not finished vintage.
+        </p>
         <p className="text-sm text-zinc-300 leading-relaxed mt-2">
           The match isn't a prediction — it's an educated theory. And for every card we spell out
           exactly what would have to go wrong for it to miss, so you know what to watch for.
@@ -1530,7 +1537,10 @@ function UpgradeModal({ onClose }) {
           <h2 className="text-lg font-bold">Start your 7-day free trial</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
         </div>
-        <p className="text-xs text-zinc-400 mb-4">Free for 7 days, then billed monthly (or yearly — ~2 months free). Cancel anytime.</p>
+        <p className="text-xs text-zinc-400 mb-2">Free for 7 days, then billed monthly (or yearly — ~2 months free). Cancel anytime.</p>
+        <p className="text-[11px] text-orange-300/90 bg-orange-500/5 border border-orange-500/30 rounded p-2 mb-4 leading-relaxed">
+          Built for <span className="font-medium">modern prospects & rookies ({CONFIG.MIN_CARD_YEAR}–present)</span> — the engine predicts which recent cards will grow. Vintage/older cards aren't supported.
+        </p>
         <div className="space-y-3">
           <Tier name="Prospector Pro" monthly="7.99" annual="79" planKey="pro" accent="border-emerald-500/40 bg-emerald-500/5"
             features={['Full dossiers + buy/sell targets', 'Hold horizon', 'Private watchlist', 'Add your own cards']} />
@@ -1546,7 +1556,7 @@ function UpgradeModal({ onClose }) {
 const INPUT_CLS = 'w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm';
 
 function SubmissionModal({ onClose }) {
-  const blank = { player: '', card_set: '', card_number: '', team: '', position: '', variant_id: 'auto_base', sportscardspro_id: '', note: '' };
+  const blank = { player: '', card_year: '', card_set: '', card_number: '', team: '', position: '', variant_id: 'auto_base', sportscardspro_id: '', note: '' };
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1560,6 +1570,11 @@ function SubmissionModal({ onClose }) {
 
   const submit = async () => {
     if (!f.player.trim()) { setMsg({ ok: false, text: 'Player name is required.' }); return; }
+    const yr = parseInt(f.card_year, 10);
+    if (!yr || yr < CONFIG.MIN_CARD_YEAR) {
+      setMsg({ ok: false, text: `CardProspector covers modern cards (${CONFIG.MIN_CARD_YEAR}–present). Older/vintage cards aren't supported — the grading-flip and growth model is built for recent prospects.` });
+      return;
+    }
     setBusy(true); setMsg(null);
     try {
       const res = await fetch('/api/submissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
@@ -1579,10 +1594,16 @@ function SubmissionModal({ onClose }) {
           <h2 className="text-lg font-bold">Submit a card</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
         </div>
-        <p className="text-xs text-zinc-400 mb-4">Tell us about a card and we'll trait-score + price it, then add it to the shared database for everyone.</p>
+        <p className="text-xs text-zinc-400 mb-2">Tell us about a card and we'll trait-score + price it, then add it to the shared database for everyone.</p>
+        <div className="text-[11px] text-orange-300/90 bg-orange-500/5 border border-orange-500/30 rounded p-2 mb-3 leading-relaxed">
+          Modern cards only — <span className="font-medium">{CONFIG.MIN_CARD_YEAR} to present</span>. The engine predicts which recent prospect/rookie cards will grow; vintage isn't supported.
+        </div>
         <div className="space-y-2">
           <input className={INPUT_CLS} placeholder="Player *" value={f.player} onChange={(e) => upd('player', e.target.value)} />
-          <input className={INPUT_CLS} placeholder="Set (e.g. 2023 Bowman Chrome Prospect Auto)" value={f.card_set} onChange={(e) => upd('card_set', e.target.value)} />
+          <div className="grid grid-cols-3 gap-2">
+            <input className={INPUT_CLS} type="number" inputMode="numeric" placeholder="Year *" value={f.card_year} onChange={(e) => upd('card_year', e.target.value)} />
+            <input className={`${INPUT_CLS} col-span-2`} placeholder="Set" value={f.card_set} onChange={(e) => upd('card_set', e.target.value)} />
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <input className={INPUT_CLS} placeholder="Card # (e.g. #CDA-WL)" value={f.card_number} onChange={(e) => upd('card_number', e.target.value)} />
             <select className={INPUT_CLS} value={f.variant_id} onChange={(e) => upd('variant_id', e.target.value)}>

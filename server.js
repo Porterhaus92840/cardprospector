@@ -268,10 +268,16 @@ app.post('/api/watchlist', requireAuth(async (req, res, user) => {
    CARD SUBMISSIONS — users submit (Pro), staff review/enrich/publish
    ============================================================================ */
 
+const MIN_CARD_YEAR = 2010; // engine scope — modern prospects/rookies only
+
 app.post('/api/submissions', requireAuth(async (req, res, user) => {
   if (!isEntitled(user)) return res.status(403).json({ error: 'Adding cards is a Pro feature.' });
   const f = req.body || {};
   if (!f.player || typeof f.player !== 'string') return res.status(400).json({ error: 'Player name is required.' });
+  const yr = parseInt(f.card_year, 10);
+  if (!yr || yr < MIN_CARD_YEAR) {
+    return res.status(400).json({ error: `CardProspector covers modern cards (${MIN_CARD_YEAR}–present). Older/vintage cards aren't supported.` });
+  }
   try {
     const sub = await createSubmission(user.id, f);
     res.json({ ok: true, submission: { id: sub.id, status: sub.status } });
