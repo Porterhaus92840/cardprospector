@@ -111,6 +111,8 @@ const CREATE_USERS_TABLE_SQL = `
     stripe_customer_id   VARCHAR(64)  NULL,
     subscription_status  VARCHAR(32)  NULL,
     trial_end            DATETIME     NULL,
+    tier_expires_at      DATETIME     NULL,
+    banned               TINYINT(1)   NOT NULL DEFAULT 0,
     created_at           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
@@ -171,6 +173,18 @@ function rowToCard(row) {
   };
 }
 
+/** Add a column if it doesn't already exist (idempotent migration helper). */
+async function ensureColumn(table, column, ddl) {
+  try {
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    console.log(`[db] migrated: added ${table}.${column}`);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME') {
+      console.error(`[db] ensureColumn ${table}.${column} failed:`, err.message);
+    }
+  }
+}
+
 /** Create the schema and seed from JSON if the table is empty. Idempotent. */
 export async function initDb() {
   await pool.query(CREATE_TABLE_SQL);
@@ -179,6 +193,10 @@ export async function initDb() {
   await pool.query(CREATE_USERS_TABLE_SQL);
   await pool.query(CREATE_WATCHLIST_TABLE_SQL);
   await pool.query(CREATE_SUBMISSIONS_TABLE_SQL);
+
+  // Migrations for columns added after the initial release (Control Console).
+  await ensureColumn('users', 'tier_expires_at', 'DATETIME NULL');
+  await ensureColumn('users', 'banned', 'TINYINT(1) NOT NULL DEFAULT 0');
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -386,9 +404,69 @@ export async function getUserById(id) {
 }
 
 /** Set a user's tier by email (admin comp / beta grant). Returns true if found. */
-export async function setUserTierByEmail(email, tier) {
-  const [r] = await pool.query('UPDATE users SET tier = ? WHERE email = ?', [tier, email.toLowerCase()]);
+export async function setUserTierByEmail(email, tier, expiresAt = null) {
+  const [r] = await pool.query('UPDATE users SET tier = ?, tier_expires_at = ? WHERE email = ?', [tier, expiresAt, email.toLowerCase()]);
   return r.affectedRows > 0;
+}
+
+/** Set a user's tier by id, with an optional expiry (used for timed beta grants). */
+export async function setUserTierById(id, tier, expiresAt = null) {
+  const [r] = await pool.query('UPDATE users SET tier = ?, tier_expires_at = ? WHERE id = ?', [tier, expiresAt, id]);
+  return r.affectedRows > 0;
+}
+
+/** Ban / unban (lock) a user account. */
+export async function setUserBanned(id, banned) {
+  const [r] = await pool.query('UPDATE users SET banned = ? WHERE id = ?', [banned ? 1 : 0, id]);
+  return r.affectedRows > 0;
+}
+
+/** Admin user list (with submission/watchlist counts), email-searchable. */
+export async function getUsers(search = '') {
+  const [rows] = await pool.query(
+    `SELECT u.id, u.email, u.tier, u.subscription_status, u.banned, u.tier_expires_at, u.trial_end, u.created_at,
+       (SELECT COUNT(*) FROM card_submissions s WHERE s.user_id = u.id) AS submissions,
+       (SELECT COUNT(*) FROM watchlists w WHERE w.user_id = u.id) AS watchlist
+       FROM users u
+      WHERE (? = '' OR u.email LIKE ?)
+      ORDER BY u.created_at DESC LIMIT 300`,
+    [search, `%${search}%`]
+  );
+  return rows;
+}
+
+/** Platform stats for the console dashboard. */
+export async function getAdminStats() {
+  const one = async (sql) => (await pool.query(sql))[0][0].n;
+  return {
+    users: await one('SELECT COUNT(*) AS n FROM users'),
+    subscribers: await one("SELECT COUNT(*) AS n FROM users WHERE tier IN ('pro','elite')"),
+    beta: await one("SELECT COUNT(*) AS n FROM users WHERE tier = 'beta'"),
+    banned: await one('SELECT COUNT(*) AS n FROM users WHERE banned = 1'),
+    pendingSubmissions: await one("SELECT COUNT(*) AS n FROM card_submissions WHERE status = 'pending'"),
+    cards: await one('SELECT COUNT(*) AS n FROM cards'),
+  };
+}
+
+/** Revert any beta grants whose end date has passed. */
+export async function expireBetas() {
+  const [r] = await pool.query(
+    "UPDATE users SET tier = 'free', tier_expires_at = NULL WHERE tier = 'beta' AND tier_expires_at IS NOT NULL AND tier_expires_at <= NOW()"
+  );
+  return r.affectedRows;
+}
+
+/** Create a card directly in the shared catalog (admin). Returns the new id. */
+export async function createCard(c) {
+  const id = c.id || `${slugify(c.player)}-${Math.random().toString(36).slice(2, 7)}`;
+  await pool.query(
+    `INSERT INTO cards
+      (id, sport, player, team, position, card_set, card_number, variant_id, ask_price, sportscardspro_id, traits, bear_case, sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [id, c.sport || 'baseball', c.player, c.team || null, c.position || null, c.card_set || null, c.card_number || null,
+     c.variant_id || null, 0, c.sportscardspro_id || null, JSON.stringify(c.traits || {}), c.bear_case || null, 2000]
+  );
+  return id;
 }
 
 /** Card ids on a user's watchlist. */

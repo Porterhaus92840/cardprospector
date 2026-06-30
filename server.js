@@ -21,6 +21,7 @@ import {
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
   setStripeCustomer, setSubscription, setUserTierByEmail,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
+  getUsers, setUserBanned, setUserTierById, getAdminStats, createCard, expireBetas,
 } from './db.js';
 import { getProvider } from './pricing.js';
 import { searchCardImage } from './ebay.js';
@@ -85,7 +86,16 @@ async function getSessionUser(req) {
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload?.uid) return null;
-  return getUserById(payload.uid);
+  const user = await getUserById(payload.uid);
+  if (!user) return null;
+  if (user.banned) return null; // locked accounts are treated as signed out
+  // Auto-revert an expired beta grant on access.
+  if (user.tier === 'beta' && user.tier_expires_at && new Date(user.tier_expires_at) <= new Date()) {
+    await setUserTierById(user.id, 'free', null);
+    user.tier = 'free';
+    user.tier_expires_at = null;
+  }
+  return user;
 }
 function requireAuth(handler) {
   return async (req, res) => {
@@ -229,6 +239,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !(await verifyPassword(password, user.password_hash))) {
       return res.status(401).json({ error: 'Incorrect email or password.' });
     }
+    if (user.banned) return res.status(403).json({ error: 'This account has been suspended.' });
     res.cookie(SESSION_COOKIE, signToken(user.id), cookieOptions());
     res.json({ user: publicUser(user) });
   } catch (err) {
@@ -352,6 +363,77 @@ app.post('/api/admin/set-tier', async (req, res) => {
 });
 
 /* ============================================================================
+   ADMIN CONSOLE — stats, users, account actions, direct card creation
+   ============================================================================ */
+
+app.get('/api/admin/stats', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  try { res.json(await getAdminStats()); }
+  catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+app.get('/api/admin/users', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  try { res.json({ users: await getUsers((req.query.search || '').toString().trim()) }); }
+  catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// Set a user's tier by id, with an optional beta duration (days) → expiry date.
+app.post('/api/admin/users/tier', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { id, tier, betaDays } = req.body || {};
+  if (!id || !['free', 'beta', 'pro', 'elite'].includes(tier)) {
+    return res.status(400).json({ error: 'id and a valid tier required' });
+  }
+  let expiresAt = null;
+  if (tier === 'beta' && betaDays && Number(betaDays) > 0) {
+    expiresAt = new Date(Date.now() + Number(betaDays) * 86400000);
+  }
+  try {
+    const updated = await setUserTierById(id, tier, expiresAt);
+    res.json({ ok: true, updated, expiresAt });
+  } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+app.post('/api/admin/users/ban', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { id, banned } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id required' });
+  try {
+    const updated = await setUserBanned(id, Boolean(banned));
+    res.json({ ok: true, updated });
+  } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// Create a card directly in the shared catalog (then best-effort price + image).
+app.post('/api/admin/cards', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const c = req.body || {};
+  if (!c.player || !c.traits || typeof c.traits !== 'object') {
+    return res.status(400).json({ error: 'player and traits are required' });
+  }
+  try {
+    const cardId = await createCard(c);
+    const provider = getProvider();
+    if (provider && c.sportscardspro_id) {
+      try {
+        const r = await provider.fetchPrice({ id: cardId, sportscardsproId: c.sportscardspro_id, askPrice: 0 });
+        if (r) await recordPrice(cardId, { ...r, observedOn: new Date().toISOString().slice(0, 10) });
+      } catch (e) { console.error('[admin] card price fetch failed:', e.message); }
+    }
+    try {
+      const q = `${c.player} ${c.card_set || ''} ${c.card_number || ''}`.replace(/·/g, ' ').replace(/\s+/g, ' ').trim();
+      const img = await searchCardImage(q);
+      if (img?.imageUrl) await setCardImage(cardId, img.imageUrl);
+    } catch (e) { console.error('[admin] card image fetch failed:', e.message); }
+    res.json({ ok: true, cardId });
+  } catch (err) {
+    console.error('[api] create card failed:', err.message);
+    res.status(500).json({ error: 'Could not create card' });
+  }
+});
+
+/* ============================================================================
    BILLING — Stripe Checkout + Customer Portal
    ============================================================================ */
 
@@ -469,6 +551,14 @@ initDb()
   .then(() => console.log('[db] ready'))
   .catch((err) => console.error('[db] init failed (serving static only):', err.message))
   .finally(() => {
+    // Sweep expired beta grants back to free on boot, then hourly.
+    const sweepBetas = () =>
+      expireBetas()
+        .then((n) => { if (n) console.log(`[beta] reverted ${n} expired grant(s) to free`); })
+        .catch((err) => console.error('[beta] sweep failed:', err.message));
+    sweepBetas();
+    setInterval(sweepBetas, 60 * 60 * 1000).unref();
+
     app.listen(PORT, () => {
       console.log(`CardProspector serving on port ${PORT}`);
       console.log(`Static files: ${DIST_DIR}`);

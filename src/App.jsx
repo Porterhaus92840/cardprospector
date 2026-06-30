@@ -1242,7 +1242,7 @@ function PortfolioTab({ portfolio, allCards, onRemove }) {
   );
 }
 
-function AdminPanel({ cards, adminToken, onSaved, onClose }) {
+function AdminPopEntry({ cards, adminToken, onSaved }) {
   const [selectedCardId, setSelectedCardId] = useState(cards[0]?.id || '');
   const [total, setTotal] = useState('');
   const [psa10, setPsa10] = useState('');
@@ -1330,12 +1330,7 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
   const totalMismatch = total !== '' && gradedSum > totalNum;
 
   return (
-    <div className="fixed inset-0 bg-zinc-950 z-50 overflow-y-auto">
-      <div className="px-4 py-5 max-w-md mx-auto">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold">Admin · Pop entry</h2>
-          <button onClick={onClose} className="text-zinc-400">Close</button>
-        </div>
+    <div className="space-y-5">
         <div className="space-y-3">
           <select
             value={selectedCardId}
@@ -1420,8 +1415,306 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
           </div>
         </div>
 
-        <AdminSubmissions adminToken={adminToken} onPublished={onSaved} />
+    </div>
+  );
+}
+
+function AdminDashboard({ adminToken, onGo }) {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    fetch('/api/admin/stats', { headers: { 'x-admin-token': adminToken } })
+      .then((r) => r.json())
+      .then(setStats)
+      .catch(() => {});
+  }, [adminToken]);
+  const Tile = ({ label, value, go }) => (
+    <button
+      onClick={() => go && onGo(go)}
+      className={`text-left bg-zinc-900/60 border border-zinc-800 rounded-lg p-3 ${go ? 'hover:border-orange-500/50' : 'cursor-default'}`}
+    >
+      <div className="text-2xl font-bold tabular-nums text-zinc-100">{value ?? '—'}</div>
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mt-0.5">{label}</div>
+    </button>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] uppercase tracking-widest text-zinc-500">System status</div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <Tile label="Users" value={stats?.users} go="users" />
+        <Tile label="Subscribers" value={stats?.subscribers} />
+        <Tile label="Beta testers" value={stats?.beta} go="users" />
+        <Tile label="Banned" value={stats?.banned} go="users" />
+        <Tile label="Pending subs" value={stats?.pendingSubmissions} go="submissions" />
+        <Tile label="Cards live" value={stats?.cards} go="cards" />
+      </div>
+    </div>
+  );
+}
+
+function AdminUsers({ adminToken }) {
+  const [search, setSearch] = useState('');
+  const [users, setUsers] = useState([]);
+  const [sel, setSel] = useState(null);
+  const [betaDays, setBetaDays] = useState('14');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/users?search=' + encodeURIComponent(search), {
+        headers: { 'x-admin-token': adminToken },
+      });
+      const d = await r.json();
+      setUsers(d.users || []);
+    } catch {
+      /* ignore */
+    }
+  }, [adminToken, search]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const act = async (path, body, label) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch('/api/admin/' + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setMsg({ ok: false, text: d.error || `Failed (${r.status})` });
+      else {
+        setMsg({ ok: true, text: label });
+        load();
+      }
+    } catch {
+      setMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const setTier = (u, tier) =>
+    act('users/tier', { id: u.id, tier, betaDays: tier === 'beta' ? Number(betaDays) || 0 : 0 }, `${u.email} → ${tier}`);
+  const ban = (u, banned) => act('users/ban', { id: u.id, banned }, `${u.email} ${banned ? 'locked' : 'unlocked'}`);
+  const fmtDate = (d) => { try { return new Date(d).toLocaleDateString(); } catch { return d; } };
+
+  return (
+    <div className="space-y-3">
+      <input
+        className={INPUT_CLS}
+        placeholder="Search accounts by email…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      {msg && (
+        <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
+          {msg.text}
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {users.length === 0 && <div className="text-xs text-zinc-500">No accounts found.</div>}
+        {users.map((u) => (
+          <div key={u.id} className="bg-zinc-900/60 border border-zinc-800 rounded p-2.5 text-xs">
+            <button onClick={() => setSel(sel === u.id ? null : u.id)} className="text-left w-full">
+              <div className="font-medium truncate flex items-center gap-1.5 text-zinc-100">
+                {u.banned ? <span className="text-red-400">⛔</span> : null}
+                {u.email}
+              </div>
+              <div className="text-zinc-500 mt-0.5">
+                <span className="uppercase tracking-wider">{u.tier}</span>
+                {u.tier_expires_at ? ` · beta until ${fmtDate(u.tier_expires_at)}` : ''}
+                {u.subscription_status ? ` · ${u.subscription_status}` : ''}
+                {` · ${u.submissions ?? 0} subs · ${u.watchlist ?? 0} watch`}
+              </div>
+            </button>
+            {sel === u.id && (
+              <div className="mt-2 pt-2 border-t border-zinc-800 space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {['free', 'beta', 'pro', 'elite'].map((t) => (
+                    <button
+                      key={t}
+                      disabled={busy}
+                      onClick={() => setTier(u, t)}
+                      className={`px-2 py-1 rounded border uppercase tracking-wider text-[10px] disabled:opacity-50 ${u.tier === t ? 'border-orange-500/60 text-orange-300 bg-orange-500/10' : 'border-zinc-700 text-zinc-300 hover:border-orange-500/50'}`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                  Beta length:
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={betaDays}
+                    onChange={(e) => setBetaDays(e.target.value)}
+                    className="w-14 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-100"
+                  />
+                  days — applied when you grant <span className="uppercase">beta</span> (blank/0 = no end date)
+                </div>
+                <button
+                  disabled={busy}
+                  onClick={() => ban(u, !u.banned)}
+                  className={`px-2 py-1 rounded border text-[10px] uppercase tracking-wider disabled:opacity-50 ${u.banned ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10' : 'border-red-500/40 text-red-400 hover:bg-red-500/10'}`}
+                >
+                  {u.banned ? 'Unlock account' : 'Ban / lock account'}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="pt-3 border-t border-zinc-800">
         <AdminUserAccess adminToken={adminToken} />
+      </div>
+    </div>
+  );
+}
+
+function AdminCreateCard({ adminToken, onCreated }) {
+  const blank = {
+    player: '',
+    card_set: '',
+    card_number: '',
+    team: '',
+    position: '',
+    variant_id: SCARCITY_LADDER[0]?.id || '',
+    sportscardspro_id: '',
+    bear_case: '',
+  };
+  const [f, setF] = useState(blank);
+  const [traits, setTraits] = useState(Object.fromEntries(SUB_TRAITS.map((t) => [t, 70])));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const upd = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const create = async () => {
+    if (!f.player.trim()) {
+      setMsg({ ok: false, text: 'Player name is required.' });
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch('/api/admin/cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ ...f, traits }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setMsg({ ok: false, text: d.error || `Failed (${r.status})` });
+      else {
+        setMsg({ ok: true, text: `Card created (${d.cardId || 'ok'}). Price + image fetch attempted.` });
+        setF(blank);
+        setTraits(Object.fromEntries(SUB_TRAITS.map((t) => [t, 70])));
+        onCreated && onCreated();
+      }
+    } catch {
+      setMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] text-zinc-400 leading-relaxed">
+        Add a card straight to the shared catalog. Give it a SportsCardsPro product ID and we’ll pull
+        its price + image automatically. Modern only (year ≥ {CONFIG.MIN_CARD_YEAR}).
+      </div>
+      <input className={INPUT_CLS} placeholder="Player *" value={f.player} onChange={(e) => upd('player', e.target.value)} />
+      <input className={INPUT_CLS} placeholder="Set (e.g. 2023 Bowman Chrome Prospect Auto)" value={f.card_set} onChange={(e) => upd('card_set', e.target.value)} />
+      <div className="grid grid-cols-2 gap-2">
+        <input className={INPUT_CLS} placeholder="Card #" value={f.card_number} onChange={(e) => upd('card_number', e.target.value)} />
+        <select className={INPUT_CLS} value={f.variant_id} onChange={(e) => upd('variant_id', e.target.value)}>
+          {SCARCITY_LADDER.map((v) => (
+            <option key={v.id} value={v.id}>{v.label}</option>
+          ))}
+        </select>
+        <input className={INPUT_CLS} placeholder="Team" value={f.team} onChange={(e) => upd('team', e.target.value)} />
+        <input className={INPUT_CLS} placeholder="Position" value={f.position} onChange={(e) => upd('position', e.target.value)} />
+      </div>
+      <input className={INPUT_CLS} placeholder="SportsCardsPro product ID (price + image)" value={f.sportscardspro_id} onChange={(e) => upd('sportscardspro_id', e.target.value)} />
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500 pt-1">Traits (0–100)</div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {SUB_TRAITS.map((t) => (
+          <div key={t}>
+            <div className="text-[9px] text-zinc-500 capitalize truncate" title={t}>{t}</div>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="w-full bg-zinc-950 border border-zinc-700 rounded px-1.5 py-1 text-xs text-zinc-100"
+              value={traits[t]}
+              onChange={(e) => setTraits((s) => ({ ...s, [t]: parseInt(e.target.value, 10) || 0 }))}
+            />
+          </div>
+        ))}
+      </div>
+      <textarea
+        className={INPUT_CLS}
+        rows={2}
+        placeholder="Warning signs to watch (optional)"
+        value={f.bear_case}
+        onChange={(e) => upd('bear_case', e.target.value)}
+      />
+      <button onClick={create} disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
+        {busy ? 'Creating…' : 'Create card'}
+      </button>
+      {msg && (
+        <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
+          {msg.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ADMIN_NAV = [
+  { id: 'dashboard', icon: '▦', label: 'Dashboard' },
+  { id: 'users', icon: '◉', label: 'Accounts' },
+  { id: 'submissions', icon: '⇄', label: 'Submissions' },
+  { id: 'cards', icon: '＋', label: 'New card' },
+  { id: 'pricing', icon: '＄', label: 'Pop / price' },
+];
+
+function AdminConsole({ cards, adminToken, onSaved, onClose }) {
+  const [screen, setScreen] = useState('dashboard');
+  return (
+    <div className="fixed inset-0 bg-zinc-950 z-50 overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-4 py-4">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className="text-orange-500 font-mono text-sm">▌</span>
+            <h2 className="text-lg font-bold tracking-tight">Control Console</h2>
+          </div>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200 text-sm">Close ✕</button>
+        </div>
+        <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-4 font-mono">
+          CardProspector · operator terminal
+        </div>
+        <div className="flex gap-2 flex-wrap mb-5">
+          {ADMIN_NAV.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => setScreen(n.id)}
+              className={`flex flex-col items-center justify-center w-[4.5rem] h-16 rounded-lg border transition ${
+                screen === n.id
+                  ? 'bg-orange-500/15 border-orange-500/50 text-orange-300'
+                  : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:border-zinc-600'
+              }`}
+            >
+              <span className="text-xl leading-none mb-1">{n.icon}</span>
+              <span className="text-[9px] uppercase tracking-wider">{n.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4">
+          {screen === 'dashboard' && <AdminDashboard adminToken={adminToken} onGo={setScreen} />}
+          {screen === 'users' && <AdminUsers adminToken={adminToken} />}
+          {screen === 'submissions' && <AdminSubmissions adminToken={adminToken} onPublished={onSaved} />}
+          {screen === 'cards' && <AdminCreateCard adminToken={adminToken} onCreated={onSaved} />}
+          {screen === 'pricing' && <AdminPopEntry cards={cards} adminToken={adminToken} onSaved={onSaved} />}
+        </div>
       </div>
     </div>
   );
@@ -2078,7 +2371,7 @@ export default function CardProspector() {
       />
 
       {adminOpen && (
-        <AdminPanel
+        <AdminConsole
           cards={allCards}
           adminToken={adminToken}
           onSaved={refetchCards}
