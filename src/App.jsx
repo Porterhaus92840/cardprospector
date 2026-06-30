@@ -509,13 +509,15 @@ function computeFlip(card, combinedScore) {
 
 /* ----------------------------------------------------------------------------
    RECOMMENDATION VERDICT — when the framework does NOT recommend a card. Grounded
-   in the flip math: if even the best-case graded sale nets a return below
-   CONFIG.MIN_FLIP_RETURN after real grading + selling costs, it's not worth it.
-   Returns { recommended, reason } or null when there's no price yet to judge.
+   in the flip math on the PSA 10 comp (the liquid, realistically achievable
+   grade): if grading to a PSA 10 returns below CONFIG.MIN_FLIP_RETURN after real
+   grading + selling costs, it's not worth it — regardless of what a lucky,
+   low-probability BGS 10 might fetch. Returns { recommended, reason } or null
+   when there's no price yet to judge.
    ---------------------------------------------------------------------------- */
 function computeRecommendation(flip) {
   if (!flip) return null; // price pending — can't judge the flip yet
-  const pct = flip.bestPct ?? flip.returnPct;
+  const pct = flip.returnPct; // PSA 10 (primary) net return — the honest basis
   if (pct == null) return null;
   if (pct < CONFIG.MIN_FLIP_RETURN) {
     return {
@@ -523,8 +525,8 @@ function computeRecommendation(flip) {
       pct,
       reason:
         pct < 0
-          ? `Our framework does not recommend this card right now — at today's prices even the best grade nets a loss (${pct}%) after grading and selling fees.`
-          : `Our framework does not recommend this card right now — the best-case graded return is only ${pct}% after grading and selling fees, too thin for the risk and the wait.`,
+          ? `Our framework does not recommend this card right now — at today's prices, grading it and selling at a PSA 10 nets a loss (${pct}%) after grading and selling fees.`
+          : `Our framework does not recommend this card right now — the PSA 10 grade-flip returns only ${pct}% after grading and selling fees, too thin for the risk and the wait.`,
     };
   }
   return { recommended: true, pct };
@@ -782,7 +784,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
           ))}
           <div className="text-xs pt-1 border-t border-zinc-800">
             <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${NOT_REC_STYLE}`}>⚠ Not recommended</span>
-            <p className="text-zinc-400 mt-1 leading-relaxed">Even the best-case graded sale returns under {CONFIG.MIN_FLIP_RETURN}% after grading + selling fees at today’s prices — too thin to recommend right now.</p>
+            <p className="text-zinc-400 mt-1 leading-relaxed">Grading to a PSA 10 returns under {CONFIG.MIN_FLIP_RETURN}% after grading + selling fees at today’s prices — too thin to recommend right now.</p>
           </div>
           <p className="text-[10px] text-zinc-500">Time ranges are guidelines from the player + price profile — not guarantees. Not financial advice.</p>
         </div>
