@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import FEATURED_CARDS_SEED from './data/cards.seed.json';
+import { LegalPage, LEGAL_DOC_FOR_PATH } from './Legal.jsx';
 
 /* ============================================================================
    CARDPROSPECTOR V2
@@ -1403,6 +1404,13 @@ function SiteFooter() {
           <span className="mx-1.5">·</span>
           <span>CardProspector · Beta</span>
         </p>
+        <p>
+          <a href="/terms" className="hover:text-zinc-400 underline">Terms</a>
+          <span className="mx-1.5">·</span>
+          <a href="/privacy" className="hover:text-zinc-400 underline">Privacy</a>
+          <span className="mx-1.5">·</span>
+          <a href="/refunds" className="hover:text-zinc-400 underline">Refunds</a>
+        </p>
       </div>
     </footer>
   );
@@ -1496,7 +1504,9 @@ function AuthModal({ onClose, onAuthed }) {
           </button>
         </div>
         <p className="text-[10px] text-zinc-500 text-center mt-3 leading-relaxed">
-          For entertainment only — not financial or investment advice.
+          For entertainment only — not financial or investment advice. By continuing you agree to our{' '}
+          <a href="/terms" className="text-zinc-400 underline">Terms</a> and{' '}
+          <a href="/privacy" className="text-zinc-400 underline">Privacy Policy</a>.
         </p>
       </div>
     </div>
@@ -1556,7 +1566,11 @@ function UpgradeModal({ onClose }) {
           <Tier name="Elite" monthly="19.99" annual="199" planKey="elite" accent="border-orange-500/40 bg-orange-500/5"
             features={['Everything in Pro', 'Price & pop alerts', 'Portfolio P&L', 'Priority on your submitted cards', 'Early access']} />
         </div>
-        <p className="text-[10px] text-zinc-500 text-center mt-4">Secure checkout by Stripe · for entertainment only, not financial advice.</p>
+        <p className="text-[10px] text-zinc-500 text-center mt-4 leading-relaxed">
+          Secure checkout by Stripe. 7-day free trial, then auto-renews; cancel anytime. By subscribing you
+          agree to our <a href="/terms" className="underline">Terms</a> &{' '}
+          <a href="/refunds" className="underline">Refund Policy</a>.
+        </p>
       </div>
     </div>
   );
@@ -1731,6 +1745,10 @@ function AdminSubmissions({ adminToken, onPublished }) {
    ============================================================================ */
 
 export default function CardProspector() {
+  // Standalone legal pages (/terms, /privacy, /refunds). Path is fixed per load.
+  const legalDoc = LEGAL_DOC_FOR_PATH(window.location.pathname);
+  if (legalDoc) return <LegalPage doc={legalDoc} />;
+
   const [state, setState] = useState(loadState);
   const [sport, setSport] = useState('baseball');
   const [tab, setTab] = useState('scout');
