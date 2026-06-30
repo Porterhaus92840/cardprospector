@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import FEATURED_CARDS_SEED from './data/cards.seed.json';
 import { LegalPage, LEGAL_DOC_FOR_PATH } from './Legal.jsx';
 
@@ -37,6 +37,9 @@ const CONFIG = {
   GRADING_COST: 22,          // TAG Basic, $/card
   EBAY_FEE_RATE: 0.136,      // eBay final value fee
   EBAY_PER_ORDER_FEE: 0.40,
+  // Below this best-case graded net return (%), the framework flags a card as
+  // "not recommended" — even the optimal grade is too thin after real costs.
+  MIN_FLIP_RETURN: 15,
   // Scope: the engine targets modern prospects/rookies (realistic PSA-10 gem
   // rates + room to grow). Older/vintage breaks the flip + growth model.
   MIN_CARD_YEAR: 2010,
@@ -431,10 +434,10 @@ function computeFlip(card, combinedScore) {
   const primaryLabel = grades.psa10 ? 'PSA 10' : grades.bgs10 ? 'BGS 10' : 'TAG 10';
 
   // Best net-return grade — the optimal sell target to highlight.
-  let bestLabel = null, bestNet = -Infinity;
+  let bestLabel = null, bestNet = -Infinity, bestPct = null;
   for (const [label, key] of GRADE_ROWS) {
     const g = grades[key];
-    if (g && g.net > bestNet) { bestNet = g.net; bestLabel = label; }
+    if (g && g.net > bestNet) { bestNet = g.net; bestLabel = label; bestPct = g.pct; }
   }
 
   const arbScore = Math.max(0, Math.min(100, primary.pct / 3)); // +300% → 100
@@ -447,10 +450,36 @@ function computeFlip(card, combinedScore) {
     primary,
     primaryLabel,
     bestLabel,
+    bestPct,
     returnPct: primary.pct,
     flipScore,
   };
 }
+
+/* ----------------------------------------------------------------------------
+   RECOMMENDATION VERDICT — when the framework does NOT recommend a card. Grounded
+   in the flip math: if even the best-case graded sale nets a return below
+   CONFIG.MIN_FLIP_RETURN after real grading + selling costs, it's not worth it.
+   Returns { recommended, reason } or null when there's no price yet to judge.
+   ---------------------------------------------------------------------------- */
+function computeRecommendation(flip) {
+  if (!flip) return null; // price pending — can't judge the flip yet
+  const pct = flip.bestPct ?? flip.returnPct;
+  if (pct == null) return null;
+  if (pct < CONFIG.MIN_FLIP_RETURN) {
+    return {
+      recommended: false,
+      pct,
+      reason:
+        pct < 0
+          ? `Our framework does not recommend this card right now — at today's prices even the best grade nets a loss (${pct}%) after grading and selling fees.`
+          : `Our framework does not recommend this card right now — the best-case graded return is only ${pct}% after grading and selling fees, too thin for the risk and the wait.`,
+    };
+  }
+  return { recommended: true, pct };
+}
+
+const NOT_REC_STYLE = 'bg-red-500/10 text-red-400 border-red-500/40';
 
 /* ----------------------------------------------------------------------------
    HOLD HORIZON — how long to hold for the card's value to play out. A heuristic
@@ -700,6 +729,10 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
               <p className="text-zinc-400 mt-1 leading-relaxed">{HORIZON_STYLE[k].desc}</p>
             </div>
           ))}
+          <div className="text-xs pt-1 border-t border-zinc-800">
+            <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${NOT_REC_STYLE}`}>⚠ Not recommended</span>
+            <p className="text-zinc-400 mt-1 leading-relaxed">Even the best-case graded sale returns under {CONFIG.MIN_FLIP_RETURN}% after grading + selling fees at today’s prices — too thin to recommend right now.</p>
+          </div>
           <p className="text-[10px] text-zinc-500">Time ranges are guidelines from the player + price profile — not guarantees. Not financial advice.</p>
         </div>
       )}
@@ -712,6 +745,8 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
       {scored.map(({ card, combinedScore, flip, horizon }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
         const isWatched = watchlist.includes(card.id);
+        const rec = computeRecommendation(flip);
+        const notRec = rec && !rec.recommended;
         const pctColor = !flip ? '' :
           flip.returnPct >= 60 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' :
           flip.returnPct >= 25 ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' :
@@ -745,9 +780,15 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
                   </div>
                 )}
                 {isPro && (
-                  <div className={`inline-block mt-1.5 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${horizon.cls}`}>
-                    {horizon.label}
-                  </div>
+                  notRec ? (
+                    <div className={`inline-block mt-1.5 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${NOT_REC_STYLE}`}>
+                      ⚠ Not recommended
+                    </div>
+                  ) : (
+                    <div className={`inline-block mt-1.5 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${horizon.cls}`}>
+                      {horizon.label}
+                    </div>
+                  )
                 )}
                 </div>
               </div>
@@ -782,6 +823,8 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
   );
   const flip = computeFlip(card, combinedScore);
   const horizon = computeHorizon(card);
+  const rec = computeRecommendation(flip);
+  const notRec = rec && !rec.recommended;
 
   return (
     <div className="px-4 py-4 pb-8 space-y-5">
@@ -816,16 +859,27 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
         </div>
       </div>
 
-      {/* Hold horizon (Pro) — or the paywall for free users */}
+      {/* Recommendation verdict / Hold horizon (Pro) — or the paywall for free users */}
       {isPro ? (
-        <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="text-[11px] uppercase tracking-widest text-zinc-500">Hold horizon</span>
-            <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${horizon.cls}`}>{horizon.label}</span>
-            <span className="text-[11px] text-zinc-500">{horizon.range}</span>
-          </div>
-          <p className="text-xs text-zinc-400 leading-relaxed">{horizon.blurb}</p>
-        </section>
+        notRec ? (
+          <section className={`border rounded-lg p-4 ${NOT_REC_STYLE}`}>
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className="text-[11px] uppercase tracking-widest opacity-90">⚠ Recommendation</span>
+              <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${NOT_REC_STYLE}`}>Not recommended</span>
+            </div>
+            <p className="text-xs leading-relaxed text-red-200/90">{rec.reason}</p>
+            <p className="text-[10px] text-red-300/60 mt-1.5">A signal, not advice — your call. Numbers update as prices move.</p>
+          </section>
+        ) : (
+          <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className="text-[11px] uppercase tracking-widest text-zinc-500">Hold horizon</span>
+              <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${horizon.cls}`}>{horizon.label}</span>
+              <span className="text-[11px] text-zinc-500">{horizon.range}</span>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">{horizon.blurb}</p>
+          </section>
+        )
       ) : (
         <section className="border border-orange-500/40 bg-orange-500/5 rounded-lg p-4 text-center">
           <div className="text-sm font-semibold text-orange-300">Unlock the full play</div>
@@ -2489,6 +2543,10 @@ export default function CardProspector() {
     return cards.find((c) => c.id === selectedCardId) || null;
   }, [selectedCardId, cards]);
 
+  // Reset the scroll position when switching tabs or opening/closing a dossier.
+  const mainRef = useRef(null);
+  useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [selectedCardId, tab]);
+
   const isPro = Boolean(user) && (user.tier === 'pro' || user.tier === 'elite' || user.tier === 'beta');
   const promptUpgrade = useCallback(() => {
     if (!user) setAuthOpen(true);
@@ -2568,7 +2626,7 @@ export default function CardProspector() {
   };
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-zinc-950 text-zinc-100 flex flex-col" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div className="h-[100dvh] w-full overflow-hidden bg-zinc-950 text-zinc-100 flex flex-col" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Account bar */}
       <div className="px-4 py-1.5 bg-zinc-900/50 border-b border-zinc-800 flex justify-end items-center text-xs">
         {user ? (
@@ -2596,7 +2654,7 @@ export default function CardProspector() {
 
       <Header sport={sport} onSportChange={setSport} />
 
-      <main className="flex-1 overflow-y-auto">
+      <main ref={mainRef} className="flex-1 overflow-y-auto min-h-0">
         {selectedCard ? (
           <DossierView
             card={selectedCard}
