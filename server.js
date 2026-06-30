@@ -13,6 +13,7 @@ import 'dotenv/config';
 import express from 'express';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -381,6 +382,30 @@ app.post('/api/billing/portal', requireAuth(async (req, res, user) => {
     res.status(500).json({ error: 'Could not open billing portal' });
   }
 }));
+
+/* ============================================================================
+   EBAY — marketplace account deletion / closure notifications
+   ----------------------------------------------------------------------------
+   Required by eBay before it will enable a production keyset. We store NO eBay
+   user data, so the POST simply acknowledges (nothing to delete). The GET
+   answers eBay's one-time validation challenge:
+     challengeResponse = SHA256(challengeCode + verificationToken + endpointURL)
+   ============================================================================ */
+app.get('/api/ebay/marketplace-deletion', (req, res) => {
+  const challengeCode = req.query.challenge_code;
+  const token = process.env.EBAY_VERIFICATION_TOKEN;
+  const endpoint = process.env.EBAY_DELETION_ENDPOINT;
+  if (!challengeCode || !token || !endpoint) {
+    return res.status(500).json({ error: 'eBay deletion endpoint not configured' });
+  }
+  const challengeResponse = crypto.createHash('sha256')
+    .update(challengeCode).update(token).update(endpoint).digest('hex');
+  res.status(200).json({ challengeResponse });
+});
+app.post('/api/ebay/marketplace-deletion', (req, res) => {
+  console.log('[ebay] account-deletion notification received');
+  res.status(200).send();
+});
 
 // Serve built static assets with aggressive caching.
 // Vite hashes filenames (e.g. index-CtVBhsIM.js), so cached versions
