@@ -21,7 +21,7 @@ import {
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
   setStripeCustomer, setSubscription, setUserTierByEmail,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
-  getUsers, setUserBanned, setUserTierById, getAdminStats, createCard, expireBetas,
+  getUsers, setUserBanned, setUserTierById, getAdminStats, createCard, updateCardTraits, expireBetas,
 } from './db.js';
 import { getProvider } from './pricing.js';
 import { searchCardImage } from './ebay.js';
@@ -439,6 +439,22 @@ app.post('/api/admin/cards', async (req, res) => {
   } catch (err) {
     console.error('[api] create card failed:', err.message);
     res.status(500).json({ error: 'Could not create card' });
+  }
+});
+
+// Update an existing card's trait scores (and optionally warning signs).
+app.post('/api/admin/cards/traits', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { id, traits, bear_case } = req.body || {};
+  if (!id || !traits || typeof traits !== 'object') {
+    return res.status(400).json({ error: 'id and traits are required' });
+  }
+  try {
+    const updated = await updateCardTraits(id, traits, bear_case);
+    res.json({ ok: true, updated });
+  } catch (err) {
+    console.error('[api] update traits failed:', err.message);
+    res.status(500).json({ error: 'Could not update traits' });
   }
 });
 

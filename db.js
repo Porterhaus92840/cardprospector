@@ -469,6 +469,16 @@ export async function createCard(c) {
   return id;
 }
 
+/** Update an existing card's trait scores (and optionally its warning signs). */
+export async function updateCardTraits(id, traits, bearCase) {
+  const sets = ['traits = ?'];
+  const vals = [JSON.stringify(traits || {})];
+  if (bearCase !== undefined) { sets.push('bear_case = ?'); vals.push(bearCase || null); }
+  vals.push(id);
+  const [r] = await pool.query(`UPDATE cards SET ${sets.join(', ')} WHERE id = ?`, vals);
+  return r.affectedRows > 0;
+}
+
 /** Card ids on a user's watchlist. */
 export async function getWatchlist(userId) {
   const [rows] = await pool.query('SELECT card_id FROM watchlists WHERE user_id = ?', [userId]);

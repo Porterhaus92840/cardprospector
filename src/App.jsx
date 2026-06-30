@@ -1814,11 +1814,119 @@ function AdminCreateCard({ adminToken, onCreated }) {
   );
 }
 
+function AdminEditTraits({ cards, adminToken, onSaved }) {
+  const [selectedCardId, setSelectedCardId] = useState(cards[0]?.id || '');
+  const [traits, setTraits] = useState(Object.fromEntries(SUB_TRAITS.map((t) => [t, 70])));
+  const [bearCase, setBearCase] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  // Prefill from the selected card's current traits + warning signs.
+  useEffect(() => {
+    const c = cards.find((x) => x.id === selectedCardId);
+    const base = Object.fromEntries(SUB_TRAITS.map((t) => [t, Number(c?.traits?.[t]) || 0]));
+    setTraits(base);
+    setBearCase(c?.bearCase || '');
+    setMsg(null);
+  }, [selectedCardId, cards]);
+
+  const save = async () => {
+    if (!selectedCardId) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const r = await fetch('/api/admin/cards/traits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ id: selectedCardId, traits, bear_case: bearCase }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setMsg({ ok: false, text: d.error || `Failed (${r.status})` });
+      else { setMsg({ ok: true, text: 'Traits updated.' }); onSaved(); }
+    } catch {
+      setMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] text-zinc-400 leading-relaxed">
+        Adjust the trait scores + warning signs for a card already in the catalog. Saved scores
+        immediately drive its Combined score, ranking, and dossier.
+      </div>
+      <select
+        value={selectedCardId}
+        onChange={(e) => setSelectedCardId(e.target.value)}
+        className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
+      >
+        {cards.map((c) => (
+          <option key={c.id} value={c.id}>{c.player} · {c.set}</option>
+        ))}
+      </select>
+
+      <div className="flex items-center justify-between pt-1">
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Traits (0–100)</div>
+        <button type="button" onClick={() => setShowGuide((v) => !v)} className="text-[10px] text-zinc-400 hover:text-zinc-200">
+          ⓘ Scoring guide
+        </button>
+      </div>
+      {showGuide && (
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded p-2 space-y-1.5 text-[10px] text-zinc-400">
+          {SUB_TRAITS.map((t) => (
+            <div key={t}>
+              <span className="text-zinc-200">{TRAIT_RUBRIC[t].label}</span>
+              <div className="text-zinc-500">{TRAIT_RUBRIC[t].anchors.join('  ·  ')}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {SUB_TRAITS.map((t) => (
+          <div key={t} className="flex items-center gap-2">
+            <div className="w-28 shrink-0 text-[11px] text-zinc-300" title={TRAIT_RUBRIC[t].anchors.join('  |  ')}>
+              {TRAIT_RUBRIC[t].label}
+            </div>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="w-16 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-1 text-xs text-zinc-100"
+              value={traits[t]}
+              onChange={(e) => setTraits((s) => ({ ...s, [t]: parseInt(e.target.value, 10) || 0 }))}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500 pt-1">Warning signs to watch</div>
+      <textarea
+        className={INPUT_CLS}
+        rows={3}
+        placeholder="Risks that would cap the upside (optional)"
+        value={bearCase}
+        onChange={(e) => setBearCase(e.target.value)}
+      />
+
+      <button onClick={save} disabled={saving || !selectedCardId} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
+        {saving ? 'Saving…' : 'Save traits'}
+      </button>
+      {msg && (
+        <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
+          {msg.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ADMIN_NAV = [
   { id: 'dashboard', icon: '▦', label: 'Dashboard' },
   { id: 'users', icon: '◉', label: 'Accounts' },
   { id: 'submissions', icon: '⇄', label: 'Submissions' },
   { id: 'cards', icon: '＋', label: 'New card' },
+  { id: 'traits', icon: '✎', label: 'Edit traits' },
   { id: 'pricing', icon: '＄', label: 'Pop / price' },
 ];
 
@@ -1858,6 +1966,7 @@ function AdminConsole({ cards, adminToken, onSaved, onClose }) {
           {screen === 'users' && <AdminUsers adminToken={adminToken} />}
           {screen === 'submissions' && <AdminSubmissions adminToken={adminToken} onPublished={onSaved} />}
           {screen === 'cards' && <AdminCreateCard adminToken={adminToken} onCreated={onSaved} />}
+          {screen === 'traits' && <AdminEditTraits cards={cards} adminToken={adminToken} onSaved={onSaved} />}
           {screen === 'pricing' && <AdminPopEntry cards={cards} adminToken={adminToken} onSaved={onSaved} />}
         </div>
       </div>
