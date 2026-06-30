@@ -1450,8 +1450,8 @@ function AuthModal({ onClose, onAuthed }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-zinc-950/90 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-zinc-950/90 z-50 flex items-center justify-center p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold">{mode === 'signup' ? 'Create account' : 'Sign in'}</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
@@ -1573,8 +1573,8 @@ function SubmissionModal({ onClose }) {
   const statusCls = (s) => s === 'published' ? 'text-emerald-400' : s === 'rejected' ? 'text-red-400' : 'text-amber-400';
 
   return (
-    <div className="fixed inset-0 bg-zinc-950/90 z-50 overflow-y-auto p-4" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md mx-auto my-8" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-zinc-950/90 z-50 overflow-y-auto p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md mx-auto my-8">
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-lg font-bold">Submit a card</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
