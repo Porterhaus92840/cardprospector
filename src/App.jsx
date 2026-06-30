@@ -458,9 +458,18 @@ function computeFlip(card, combinedScore) {
    Returns short / mid / long with a colour and a one-line rationale.
    ---------------------------------------------------------------------------- */
 const HORIZON_STYLE = {
-  short: { label: 'Short-term hold', cls: 'bg-sky-500/15 text-sky-400 border-sky-500/40' },
-  mid:   { label: 'Mid-term hold',   cls: 'bg-amber-500/15 text-amber-400 border-amber-500/40' },
-  long:  { label: 'Long-term hold',  cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
+  short: {
+    label: 'Short-term hold', range: 'under ~1 year', cls: 'bg-sky-500/15 text-sky-400 border-sky-500/40',
+    desc: 'Value is largely realizable now — the card is already priced up or carries durability risk (e.g., pitchers). Plan to capture the move and move on, not to sit on it for years.',
+  },
+  mid: {
+    label: 'Mid-term hold', range: '~1–3 years', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/40',
+    desc: 'Real upside, but not a multi-year compounder. Hold through the next catalyst — a breakout, a call-up, a deep playoff run — then reassess.',
+  },
+  long: {
+    label: 'Long-term hold', range: '~3+ years', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40',
+    desc: 'Durable profile, a still-rising ceiling, and room left in the price. Value compounds as the player’s career plays out — buy and sit on it.',
+  },
 };
 function computeHorizon(card) {
   const t = card.traits || {};
@@ -606,15 +615,25 @@ function ScoreBadge({ value, label }) {
 }
 
 function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubmit }) {
-  // Cards + prices come from the API (MySQL). Rank by flip score (engine
-  // conviction blended with raw→PSA10 grading upside); cards without prices
-  // fall back to their combined score and sort below priced ones.
-  const scored = cards
-    .map((c) => {
-      const cs = computeCombinedScore(c);
-      return { card: c, ...cs, flip: computeFlip(c, cs.combinedScore), horizon: computeHorizon(c) };
-    })
-    .sort((a, b) => (b.flip?.flipScore ?? b.combinedScore) - (a.flip?.flipScore ?? a.combinedScore));
+  const [sortBy, setSortBy] = useState('flip');
+  const [maxBuy, setMaxBuy] = useState(0); // 0 = any
+  const [showLegend, setShowLegend] = useState(false);
+
+  const rank = { short: 0, mid: 1, long: 2 };
+  const comparators = {
+    flip:   (a, b) => (b.flip?.flipScore ?? b.combinedScore) - (a.flip?.flipScore ?? a.combinedScore),
+    short:  (a, b) => rank[a.horizon.key] - rank[b.horizon.key] || (b.flip?.flipScore ?? 0) - (a.flip?.flipScore ?? 0),
+    long:   (a, b) => rank[b.horizon.key] - rank[a.horizon.key] || (b.flip?.flipScore ?? 0) - (a.flip?.flipScore ?? 0),
+    buylow: (a, b) => (a.flip?.targetBuy ?? Infinity) - (b.flip?.targetBuy ?? Infinity),
+    ret:    (a, b) => (b.flip?.returnPct ?? -Infinity) - (a.flip?.returnPct ?? -Infinity),
+  };
+
+  let scored = cards.map((c) => {
+    const cs = computeCombinedScore(c);
+    return { card: c, ...cs, flip: computeFlip(c, cs.combinedScore), horizon: computeHorizon(c) };
+  });
+  if (maxBuy > 0) scored = scored.filter((s) => s.flip && s.flip.targetBuy <= maxBuy);
+  scored = scored.sort(comparators[sortBy] || comparators.flip);
 
   return (
     <div className="px-4 py-4 space-y-3">
@@ -624,6 +643,47 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
         </div>
         <button onClick={onSubmit} className="text-[11px] text-orange-400 hover:text-orange-300 whitespace-nowrap">+ Submit a card</button>
       </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {isPro && (
+          <>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300">
+              <option value="flip">Sort: Best opportunity</option>
+              <option value="short">Sort: Shortest hold first</option>
+              <option value="long">Sort: Longest hold first</option>
+              <option value="buylow">Sort: Lowest buy price</option>
+              <option value="ret">Sort: Highest return</option>
+            </select>
+            <select value={maxBuy} onChange={(e) => setMaxBuy(Number(e.target.value))} className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300">
+              <option value={0}>Buy price: Any</option>
+              <option value={10}>Buy ≤ $10</option>
+              <option value={25}>Buy ≤ $25</option>
+              <option value={50}>Buy ≤ $50</option>
+              <option value={100}>Buy ≤ $100</option>
+              <option value={250}>Buy ≤ $250</option>
+              <option value={500}>Buy ≤ $500</option>
+            </select>
+          </>
+        )}
+        <button onClick={() => setShowLegend((v) => !v)} className="text-xs text-zinc-400 hover:text-zinc-200 ml-auto">ⓘ Hold horizons</button>
+      </div>
+
+      {showLegend && (
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3 space-y-2.5">
+          {['short', 'mid', 'long'].map((k) => (
+            <div key={k} className="text-xs">
+              <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${HORIZON_STYLE[k].cls}`}>{HORIZON_STYLE[k].label}</span>
+              <span className="text-zinc-500 ml-1.5">{HORIZON_STYLE[k].range}</span>
+              <p className="text-zinc-400 mt-1 leading-relaxed">{HORIZON_STYLE[k].desc}</p>
+            </div>
+          ))}
+          <p className="text-[10px] text-zinc-500">Time ranges are guidelines from the player + price profile — not guarantees. Not financial advice.</p>
+        </div>
+      )}
+
+      {scored.length === 0 && (
+        <div className="text-xs text-zinc-500 text-center py-6">No cards match this filter.</div>
+      )}
       {scored.map(({ card, combinedScore, flip, horizon }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
         const isWatched = watchlist.includes(card.id);
@@ -734,9 +794,10 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
       {/* Hold horizon (Pro) — or the paywall for free users */}
       {isPro ? (
         <section className="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="text-[11px] uppercase tracking-widest text-zinc-500">Hold horizon</span>
             <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${horizon.cls}`}>{horizon.label}</span>
+            <span className="text-[11px] text-zinc-500">{horizon.range}</span>
           </div>
           <p className="text-xs text-zinc-400 leading-relaxed">{horizon.blurb}</p>
         </section>
