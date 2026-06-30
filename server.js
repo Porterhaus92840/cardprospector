@@ -16,10 +16,12 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  initDb, getCards, recordPop, setTagPrice,
+  initDb, getCards, recordPop, setTagPrice, recordPrice,
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
   setStripeCustomer, setSubscription,
+  createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
 } from './db.js';
+import { getProvider } from './pricing.js';
 import {
   hashPassword, verifyPassword, signToken, verifyToken,
   cookieOptions, validCredentials, publicUser, SESSION_COOKIE,
@@ -261,6 +263,63 @@ app.post('/api/watchlist', requireAuth(async (req, res, user) => {
     res.status(500).json({ error: 'Could not update watchlist' });
   }
 }));
+
+/* ============================================================================
+   CARD SUBMISSIONS — users submit (Pro), staff review/enrich/publish
+   ============================================================================ */
+
+app.post('/api/submissions', requireAuth(async (req, res, user) => {
+  if (!isEntitled(user)) return res.status(403).json({ error: 'Adding cards is a Pro feature.' });
+  const f = req.body || {};
+  if (!f.player || typeof f.player !== 'string') return res.status(400).json({ error: 'Player name is required.' });
+  try {
+    const sub = await createSubmission(user.id, f);
+    res.json({ ok: true, submission: { id: sub.id, status: sub.status } });
+  } catch (err) {
+    console.error('[api] submission failed:', err.message);
+    res.status(500).json({ error: 'Could not submit card' });
+  }
+}));
+
+app.get('/api/submissions/mine', requireAuth(async (req, res, user) => {
+  res.json({ submissions: await getMySubmissions(user.id) });
+}));
+
+app.get('/api/admin/submissions', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  res.json({ submissions: await getPendingSubmissions() });
+});
+
+// Publish a submission into the shared cards table (with enriched traits +
+// SportsCardsPro id), then best-effort fetch its price immediately.
+app.post('/api/admin/submissions/publish', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { id, ...enriched } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+  if (!enriched.traits || typeof enriched.traits !== 'object') return res.status(400).json({ error: 'Traits are required to publish.' });
+  try {
+    const cardId = await publishSubmission(id, enriched);
+    if (!cardId) return res.status(404).json({ error: 'Submission not found' });
+    const provider = getProvider();
+    if (provider && enriched.sportscardspro_id) {
+      try {
+        const r = await provider.fetchPrice({ id: cardId, sportscardsproId: enriched.sportscardspro_id, askPrice: 0 });
+        if (r) await recordPrice(cardId, { ...r, observedOn: new Date().toISOString().slice(0, 10) });
+      } catch (e) { console.error('[submissions] price fetch failed:', e.message); }
+    }
+    res.json({ ok: true, cardId });
+  } catch (err) {
+    console.error('[api] publish submission failed:', err.message);
+    res.status(500).json({ error: 'Could not publish' });
+  }
+});
+
+app.post('/api/admin/submissions/reject', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { id, reviewNote } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+  res.json({ ok: await rejectSubmission(id, reviewNote) });
+});
 
 /* ============================================================================
    BILLING — Stripe Checkout + Customer Portal

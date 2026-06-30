@@ -114,6 +114,29 @@ const CREATE_USERS_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 
+// User-submitted cards. They identify the card; we enrich (trait-score +
+// price-map) on review, then publish into the shared `cards` table.
+const CREATE_SUBMISSIONS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS card_submissions (
+    id                 BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    user_id            BIGINT       NOT NULL,
+    player             VARCHAR(128) NOT NULL,
+    sport              VARCHAR(32)  NOT NULL DEFAULT 'baseball',
+    team               VARCHAR(64),
+    position           VARCHAR(16),
+    card_set           VARCHAR(160),
+    card_number        VARCHAR(32),
+    variant_id         VARCHAR(48),
+    sportscardspro_id  VARCHAR(16),
+    note               TEXT,
+    status             VARCHAR(16)  NOT NULL DEFAULT 'pending',
+    review_note        TEXT,
+    published_card_id  VARCHAR(64),
+    created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_sub_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
 // Per-user private watchlist (replaces the old localStorage watchlist).
 const CREATE_WATCHLIST_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS watchlists (
@@ -153,6 +176,7 @@ export async function initDb() {
   await pool.query(CREATE_POP_TABLE_SQL);
   await pool.query(CREATE_USERS_TABLE_SQL);
   await pool.query(CREATE_WATCHLIST_TABLE_SQL);
+  await pool.query(CREATE_SUBMISSIONS_TABLE_SQL);
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -381,6 +405,77 @@ export async function setSubscription(stripeCustomerId, { tier, status, trialEnd
     'UPDATE users SET tier = ?, subscription_status = ?, trial_end = ? WHERE stripe_customer_id = ?',
     [tier, status, trialEnd ?? null, stripeCustomerId]
   );
+}
+
+/* ============================================================================
+   CARD SUBMISSIONS (submit → review → publish)
+   ============================================================================ */
+
+const slugify = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+
+export async function createSubmission(userId, f) {
+  const [res] = await pool.query(
+    `INSERT INTO card_submissions
+      (user_id, player, sport, team, position, card_set, card_number, variant_id, sportscardspro_id, note)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [userId, f.player, f.sport || 'baseball', f.team || null, f.position || null, f.card_set || null,
+     f.card_number || null, f.variant_id || null, f.sportscardspro_id || null, f.note || null]
+  );
+  return getSubmissionById(res.insertId);
+}
+
+export async function getSubmissionById(id) {
+  const [[row]] = await pool.query('SELECT * FROM card_submissions WHERE id = ?', [id]);
+  return row || null;
+}
+
+export async function getMySubmissions(userId) {
+  const [rows] = await pool.query(
+    'SELECT id, player, card_set, card_number, status, review_note, published_card_id, created_at FROM card_submissions WHERE user_id = ? ORDER BY created_at DESC',
+    [userId]
+  );
+  return rows;
+}
+
+export async function getPendingSubmissions() {
+  const [rows] = await pool.query(
+    `SELECT s.*, u.email AS submitter_email
+       FROM card_submissions s JOIN users u ON u.id = s.user_id
+      WHERE s.status = 'pending' ORDER BY s.created_at ASC`
+  );
+  return rows;
+}
+
+/** Publish a submission into the shared cards table (with enriched data). */
+export async function publishSubmission(id, enriched) {
+  const sub = await getSubmissionById(id);
+  if (!sub) return null;
+  const cardId = `${slugify(enriched.player || sub.player)}-s${id}`;
+  await pool.query(
+    `INSERT INTO cards
+      (id, sport, player, team, position, card_set, card_number, variant_id, ask_price,
+       sportscardspro_id, traits, bear_case, sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      cardId, enriched.sport || sub.sport, enriched.player || sub.player, enriched.team || sub.team,
+      enriched.position || sub.position, enriched.card_set || sub.card_set, enriched.card_number || sub.card_number,
+      enriched.variant_id || sub.variant_id, 0, enriched.sportscardspro_id || sub.sportscardspro_id || null,
+      JSON.stringify(enriched.traits), enriched.bear_case || null, 1000 + Number(id),
+    ]
+  );
+  await pool.query(
+    "UPDATE card_submissions SET status = 'published', published_card_id = ? WHERE id = ?",
+    [cardId, id]
+  );
+  return cardId;
+}
+
+export async function rejectSubmission(id, reviewNote) {
+  const [r] = await pool.query(
+    "UPDATE card_submissions SET status = 'rejected', review_note = ? WHERE id = ? AND status = 'pending'",
+    [reviewNote || null, id]
+  );
+  return r.affectedRows > 0;
 }
 
 /**

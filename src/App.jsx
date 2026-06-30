@@ -601,7 +601,7 @@ function ScoreBadge({ value, label }) {
   );
 }
 
-function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro }) {
+function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubmit }) {
   // Cards + prices come from the API (MySQL). Rank by flip score (engine
   // conviction blended with raw→PSA10 grading upside); cards without prices
   // fall back to their combined score and sort below priced ones.
@@ -614,8 +614,11 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro }) {
 
   return (
     <div className="px-4 py-4 space-y-3">
-      <div className="text-[11px] uppercase tracking-widest text-zinc-500">
-        Today's prospects · raw → graded flip · net return
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] uppercase tracking-widest text-zinc-500">
+          Today's prospects · raw → graded flip
+        </div>
+        <button onClick={onSubmit} className="text-[11px] text-orange-400 hover:text-orange-300 whitespace-nowrap">+ Submit a card</button>
       </div>
       {scored.map(({ card, combinedScore, flip, horizon }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
@@ -1338,6 +1341,8 @@ function AdminPanel({ cards, adminToken, onSaved, onClose }) {
             ))}
           </div>
         </div>
+
+        <AdminSubmissions adminToken={adminToken} onPublished={onSaved} />
       </div>
     </div>
   );
@@ -1538,6 +1543,159 @@ function UpgradeModal({ onClose }) {
   );
 }
 
+const INPUT_CLS = 'w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm';
+
+function SubmissionModal({ onClose }) {
+  const blank = { player: '', card_set: '', card_number: '', team: '', position: '', variant_id: 'auto_base', sportscardspro_id: '', note: '' };
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [mine, setMine] = useState([]);
+  const upd = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  const loadMine = useCallback(async () => {
+    try { const r = await fetch('/api/submissions/mine'); const d = await r.json(); setMine(d.submissions || []); } catch {}
+  }, []);
+  useEffect(() => { loadMine(); }, [loadMine]);
+
+  const submit = async () => {
+    if (!f.player.trim()) { setMsg({ ok: false, text: 'Player name is required.' }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch('/api/submissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) setMsg({ ok: false, text: d.error || 'Could not submit.' });
+      else { setMsg({ ok: true, text: 'Submitted! We review and price each card before it joins the shared database.' }); setF(blank); loadMine(); }
+    } catch { setMsg({ ok: false, text: 'Could not reach the server.' }); }
+    finally { setBusy(false); }
+  };
+
+  const statusCls = (s) => s === 'published' ? 'text-emerald-400' : s === 'rejected' ? 'text-red-400' : 'text-amber-400';
+
+  return (
+    <div className="fixed inset-0 bg-zinc-950/90 z-50 overflow-y-auto p-4" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md mx-auto my-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">Submit a card</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
+        </div>
+        <p className="text-xs text-zinc-400 mb-4">Tell us about a card and we'll trait-score + price it, then add it to the shared database for everyone.</p>
+        <div className="space-y-2">
+          <input className={INPUT_CLS} placeholder="Player *" value={f.player} onChange={(e) => upd('player', e.target.value)} />
+          <input className={INPUT_CLS} placeholder="Set (e.g. 2023 Bowman Chrome Prospect Auto)" value={f.card_set} onChange={(e) => upd('card_set', e.target.value)} />
+          <div className="grid grid-cols-2 gap-2">
+            <input className={INPUT_CLS} placeholder="Card # (e.g. #CDA-WL)" value={f.card_number} onChange={(e) => upd('card_number', e.target.value)} />
+            <select className={INPUT_CLS} value={f.variant_id} onChange={(e) => upd('variant_id', e.target.value)}>
+              {SCARCITY_LADDER.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
+            <input className={INPUT_CLS} placeholder="Team" value={f.team} onChange={(e) => upd('team', e.target.value)} />
+            <input className={INPUT_CLS} placeholder="Position" value={f.position} onChange={(e) => upd('position', e.target.value)} />
+          </div>
+          <input className={INPUT_CLS} placeholder="SportsCardsPro product ID (optional)" value={f.sportscardspro_id} onChange={(e) => upd('sportscardspro_id', e.target.value)} />
+          <textarea className={INPUT_CLS} rows={2} placeholder="Anything else? (optional)" value={f.note} onChange={(e) => upd('note', e.target.value)} />
+          <button onClick={submit} disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded-lg py-2.5">
+            {busy ? '…' : 'Submit card'}
+          </button>
+          {msg && <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>{msg.text}</div>}
+        </div>
+        {mine.length > 0 && (
+          <div className="mt-5">
+            <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Your submissions</div>
+            <div className="space-y-1.5">
+              {mine.map((s) => (
+                <div key={s.id} className="text-xs bg-zinc-900/60 border border-zinc-800 rounded p-2 flex justify-between gap-2">
+                  <span className="truncate">{s.player}{s.card_number ? ` · ${s.card_number}` : ''}</span>
+                  <span className={`uppercase tracking-wider ${statusCls(s.status)}`}>{s.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const SUB_TRAITS = ['hof', 'peak', 'market', 'position', 'narrative', 'unique', 'longevity'];
+
+function SubmissionReview({ sub, adminToken, onDone }) {
+  const [f, setF] = useState({
+    player: sub.player, sport: sub.sport, team: sub.team || '', position: sub.position || '',
+    card_set: sub.card_set || '', card_number: sub.card_number || '', variant_id: sub.variant_id || 'auto_base',
+    sportscardspro_id: sub.sportscardspro_id || '', bear_case: '',
+  });
+  const [traits, setTraits] = useState(Object.fromEntries(SUB_TRAITS.map((t) => [t, 70])));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const upd = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  const act = async (path, body) => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/submissions/${path}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken }, body: JSON.stringify(body),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg({ ok: false, text: d.error || 'Failed' }); setBusy(false); }
+      else onDone();
+    } catch { setMsg({ ok: false, text: 'Server error' }); setBusy(false); }
+  };
+  const publish = () => act('publish', { id: sub.id, ...f, traits });
+  const reject = () => act('reject', { id: sub.id, reviewNote: window.prompt('Reason (optional)') ?? '' });
+
+  return (
+    <div className="bg-zinc-900/60 border border-zinc-800 rounded p-3 text-xs space-y-2">
+      <div className="text-zinc-500">by {sub.submitter_email}{sub.note ? ` · "${sub.note}"` : ''}</div>
+      <input className={INPUT_CLS} value={f.player} onChange={(e) => upd('player', e.target.value)} placeholder="Player" />
+      <input className={INPUT_CLS} value={f.card_set} onChange={(e) => upd('card_set', e.target.value)} placeholder="Set" />
+      <div className="grid grid-cols-2 gap-2">
+        <input className={INPUT_CLS} value={f.card_number} onChange={(e) => upd('card_number', e.target.value)} placeholder="Card #" />
+        <select className={INPUT_CLS} value={f.variant_id} onChange={(e) => upd('variant_id', e.target.value)}>
+          {SCARCITY_LADDER.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+        </select>
+        <input className={INPUT_CLS} value={f.team} onChange={(e) => upd('team', e.target.value)} placeholder="Team" />
+        <input className={INPUT_CLS} value={f.position} onChange={(e) => upd('position', e.target.value)} placeholder="Position" />
+      </div>
+      <input className={INPUT_CLS} value={f.sportscardspro_id} onChange={(e) => upd('sportscardspro_id', e.target.value)} placeholder="SportsCardsPro product ID (for pricing)" />
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500 pt-1">Traits (0–100)</div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {SUB_TRAITS.map((t) => (
+          <div key={t}>
+            <div className="text-[9px] text-zinc-500 capitalize">{t.slice(0, 4)}</div>
+            <input type="number" className="w-full bg-zinc-950 border border-zinc-700 rounded px-1.5 py-1 text-xs" value={traits[t]} onChange={(e) => setTraits((s) => ({ ...s, [t]: parseInt(e.target.value, 10) || 0 }))} />
+          </div>
+        ))}
+      </div>
+      <textarea className={INPUT_CLS} rows={2} value={f.bear_case} onChange={(e) => upd('bear_case', e.target.value)} placeholder="Warning signs to watch (the bear case)" />
+      <div className="flex gap-2">
+        <button onClick={publish} disabled={busy} className="flex-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2">{busy ? '…' : 'Publish to shared DB'}</button>
+        <button onClick={reject} disabled={busy} className="bg-zinc-800 hover:bg-zinc-700 rounded px-3">Reject</button>
+      </div>
+      {msg && <div className="text-red-400">{msg.text}</div>}
+    </div>
+  );
+}
+
+function AdminSubmissions({ adminToken, onPublished }) {
+  const [subs, setSubs] = useState([]);
+  const load = useCallback(async () => {
+    try { const r = await fetch('/api/admin/submissions', { headers: { 'x-admin-token': adminToken } }); const d = await r.json(); setSubs(d.submissions || []); } catch {}
+  }, [adminToken]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <div className="mt-6 pt-4 border-t border-zinc-800">
+      <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Pending submissions ({subs.length})</div>
+      {subs.length === 0 ? (
+        <div className="text-xs text-zinc-500">None pending.</div>
+      ) : (
+        <div className="space-y-3">
+          {subs.map((s) => <SubmissionReview key={s.id} sub={s} adminToken={adminToken} onDone={() => { load(); onPublished && onPublished(); }} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================================================================
    APP ROOT
    ============================================================================ */
@@ -1560,6 +1718,7 @@ export default function CardProspector() {
   const [watchlist, setWatchlist] = useState([]);
   const [billingEnabled, setBillingEnabled] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
 
   const refetchCards = useCallback(async () => {
     try {
@@ -1623,6 +1782,11 @@ export default function CardProspector() {
     if (!user) setAuthOpen(true);
     else setUpgradeOpen(true);
   }, [user]);
+  const onSubmitCard = useCallback(() => {
+    if (!user) setAuthOpen(true);
+    else if (!isPro) setUpgradeOpen(true);
+    else setSubmitOpen(true);
+  }, [user, isPro]);
 
   // Watchlist is a paid feature. Signed out → auth; free tier → upgrade.
   const toggleWatch = useCallback((id) => {
@@ -1735,6 +1899,7 @@ export default function CardProspector() {
             onToggleWatch={toggleWatch}
             isPro={isPro}
             onUpgrade={promptUpgrade}
+            onSubmit={onSubmitCard}
           />
         ) : tab === 'learn' ? (
           <LearnTab sport={sport} />
@@ -1766,6 +1931,7 @@ export default function CardProspector() {
 
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
       {upgradeOpen && <UpgradeModal onClose={() => setUpgradeOpen(false)} />}
+      {submitOpen && <SubmissionModal onClose={() => setSubmitOpen(false)} />}
     </div>
   );
 }
