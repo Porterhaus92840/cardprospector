@@ -75,27 +75,55 @@ const STORAGE_KEY = 'cardprospector:v2';
    - longevity:  Sustained career length
    ============================================================================ */
 
+/* Each archetype carries a `traits` profile (the player's realized 7-trait shape)
+   and an `outcomeValue` 0-100 — how premium their cards actually became / how the
+   career played out. The engine matches a card to the nearest profiles by
+   magnitude-aware distance, then blends those archetypes' outcomeValues into the
+   player signal — so resembling a bust drags the score down, resembling a legend
+   lifts it. Tiers span the full outcome range, not just the greats. */
 const PLAYBOOKS = {
   baseball: [
-    { id: 'mantle',  name: 'Mickey Mantle',     era: '1951 Bowman',     traits: { hof: 100, peak: 98, market: 100, position: 95, narrative: 98, unique: 92, longevity: 85 } },
-    { id: 'jeter',   name: 'Derek Jeter',       era: '1993 SP Foil',    traits: { hof: 100, peak: 78, market: 100, position: 95, narrative: 96, unique: 70, longevity: 98 } },
-    { id: 'griffey', name: 'Ken Griffey Jr.',   era: '1989 Upper Deck', traits: { hof: 100, peak: 92, market: 70, position: 95, narrative: 90, unique: 88, longevity: 80 } },
-    { id: 'trout',   name: 'Mike Trout',        era: '2011 Topps Update', traits: { hof: 98,  peak: 100, market: 55, position: 95, narrative: 75, unique: 95, longevity: 75 } },
-    { id: 'ohtani',  name: 'Shohei Ohtani',     era: '2018 Topps Chrome', traits: { hof: 95,  peak: 100, market: 95, position: 80, narrative: 100, unique: 100, longevity: 70 } },
-    { id: 'acuna',   name: 'Ronald Acuña Jr.',  era: '2018 Bowman Chrome', traits: { hof: 88,  peak: 95, market: 65, position: 75, narrative: 85, unique: 88, longevity: 70 } },
-    { id: 'soto',    name: 'Juan Soto',         era: '2018 Bowman Chrome', traits: { hof: 92,  peak: 90, market: 95, position: 65, narrative: 88, unique: 85, longevity: 80 } },
-    { id: 'judge',   name: 'Aaron Judge',       era: '2013 Bowman Chrome', traits: { hof: 85,  peak: 95, market: 100, position: 60, narrative: 92, unique: 90, longevity: 65 } },
+    // — Generational (the ceiling) —
+    { id: 'mantle',  name: 'Mickey Mantle',    era: '1951 Bowman',        outcomeValue: 100, traits: { hof: 100, peak: 98, market: 100, position: 95, narrative: 98, unique: 92, longevity: 85 } },
+    { id: 'griffey', name: 'Ken Griffey Jr.',  era: '1989 Upper Deck',    outcomeValue: 97,  traits: { hof: 100, peak: 92, market: 70, position: 95, narrative: 90, unique: 88, longevity: 80 } },
+    { id: 'trout',   name: 'Mike Trout',       era: '2011 Topps Update',  outcomeValue: 95,  traits: { hof: 98, peak: 100, market: 55, position: 95, narrative: 75, unique: 95, longevity: 75 } },
+    { id: 'ohtani',  name: 'Shohei Ohtani',    era: '2018 Topps Chrome',  outcomeValue: 98,  traits: { hof: 95, peak: 100, market: 95, position: 80, narrative: 100, unique: 100, longevity: 70 } },
+    // — Star / HOF-track —
+    { id: 'jeter',   name: 'Derek Jeter',      era: '1993 SP Foil',       outcomeValue: 92,  traits: { hof: 100, peak: 78, market: 100, position: 95, narrative: 96, unique: 70, longevity: 98 } },
+    { id: 'soto',    name: 'Juan Soto',        era: '2018 Bowman Chrome', outcomeValue: 88,  traits: { hof: 92, peak: 90, market: 95, position: 65, narrative: 88, unique: 85, longevity: 80 } },
+    { id: 'judge',   name: 'Aaron Judge',      era: '2013 Bowman Chrome', outcomeValue: 86,  traits: { hof: 85, peak: 95, market: 100, position: 60, narrative: 92, unique: 90, longevity: 65 } },
+    { id: 'acuna',   name: 'Ronald Acuña Jr.', era: '2018 Bowman Chrome', outcomeValue: 84,  traits: { hof: 88, peak: 95, market: 65, position: 75, narrative: 85, unique: 88, longevity: 70 } },
+    { id: 'harper',  name: 'Bryce Harper',     era: '2011 Bowman Chrome', outcomeValue: 85,  traits: { hof: 90, peak: 90, market: 85, position: 60, narrative: 90, unique: 82, longevity: 82 } },
+    { id: 'betts',   name: 'Mookie Betts',     era: '2014 Bowman Chrome', outcomeValue: 88,  traits: { hof: 93, peak: 92, market: 90, position: 80, narrative: 80, unique: 88, longevity: 85 } },
+    // — Solid regular / borderline (the realistic middle) —
+    { id: 'votto',   name: 'Joey Votto',       era: '2007 Bowman Chrome', outcomeValue: 60,  traits: { hof: 80, peak: 82, market: 45, position: 55, narrative: 55, unique: 75, longevity: 78 } },
+    { id: 'wright',  name: 'David Wright',      era: '2004 Topps Chrome',  outcomeValue: 58,  traits: { hof: 70, peak: 82, market: 90, position: 80, narrative: 78, unique: 70, longevity: 55 } },
+    { id: 'pence',   name: 'Hunter Pence',     era: '2007 Topps',         outcomeValue: 45,  traits: { hof: 40, peak: 62, market: 65, position: 55, narrative: 60, unique: 55, longevity: 70 } },
+    { id: 'abreu',   name: 'José Abreu',       era: '2014 Topps Chrome',  outcomeValue: 42,  traits: { hof: 45, peak: 75, market: 60, position: 45, narrative: 50, unique: 60, longevity: 60 } },
+    // — Plateaued / cautionary (hyped, then faded) —
+    { id: 'wieters', name: 'Matt Wieters',     era: '2009 Bowman Chrome', outcomeValue: 38,  traits: { hof: 48, peak: 60, market: 55, position: 100, narrative: 65, unique: 55, longevity: 55 } },
+    { id: 'hosmer',  name: 'Eric Hosmer',      era: '2011 Bowman Chrome', outcomeValue: 40,  traits: { hof: 42, peak: 62, market: 70, position: 55, narrative: 60, unique: 50, longevity: 68 } },
+    { id: 'buxton',  name: 'Byron Buxton',     era: '2013 Bowman Chrome', outcomeValue: 42,  traits: { hof: 50, peak: 80, market: 50, position: 95, narrative: 62, unique: 90, longevity: 35 } },
+    { id: 'myers',   name: 'Wil Myers',        era: '2013 Bowman Chrome', outcomeValue: 38,  traits: { hof: 40, peak: 65, market: 60, position: 60, narrative: 62, unique: 58, longevity: 55 } },
+    // — Bust / flameout (the downside floor) —
+    { id: 'wood',    name: 'Brandon Wood',     era: '2006 Bowman Chrome', outcomeValue: 16,  traits: { hof: 25, peak: 55, market: 55, position: 90, narrative: 55, unique: 60, longevity: 30 } },
+    { id: 'delmon',  name: 'Delmon Young',     era: '2005 Bowman Chrome', outcomeValue: 22,  traits: { hof: 30, peak: 58, market: 60, position: 55, narrative: 60, unique: 55, longevity: 45 } },
+    { id: 'montero', name: 'Jesús Montero',    era: '2011 Bowman Chrome', outcomeValue: 18,  traits: { hof: 28, peak: 60, market: 80, position: 60, narrative: 65, unique: 62, longevity: 30 } },
+    // — Pitchers (a different risk + card-premium profile) —
+    { id: 'kershaw', name: 'Clayton Kershaw',  era: '2006 Bowman Chrome', outcomeValue: 80,  traits: { hof: 98, peak: 98, market: 90, position: 40, narrative: 80, unique: 90, longevity: 80 } },
+    { id: 'verlander', name: 'Justin Verlander', era: '2005 Bowman Chrome', outcomeValue: 70, traits: { hof: 95, peak: 90, market: 75, position: 40, narrative: 72, unique: 82, longevity: 92 } },
+    { id: 'strasburg', name: 'Stephen Strasburg', era: '2010 Bowman Chrome', outcomeValue: 40, traits: { hof: 45, peak: 88, market: 80, position: 40, narrative: 78, unique: 88, longevity: 30 } },
   ],
   // Stage 2 — populated but engine doesn't activate until sport selector ships.
   basketball: [
-    { id: 'jordan',  name: 'Michael Jordan',    era: '1986 Fleer',      traits: { hof: 100, peak: 100, market: 95, position: 70, narrative: 100, unique: 100, longevity: 90 } },
-    { id: 'kobe',    name: 'Kobe Bryant',       era: '1996-97 Topps Chrome Refractor', traits: { hof: 100, peak: 95, market: 100, position: 70, narrative: 100, unique: 92, longevity: 95 } },
-    { id: 'lebron',  name: 'LeBron James',      era: '2003-04 Topps Chrome', traits: { hof: 100, peak: 100, market: 95, position: 65, narrative: 100, unique: 95, longevity: 100 } },
-    { id: 'kg',      name: 'Kevin Garnett',     era: '1995-96 Topps',   traits: { hof: 98,  peak: 90, market: 60, position: 78, narrative: 80, unique: 88, longevity: 95 } },
-    { id: 'curry',   name: 'Stephen Curry',     era: '2009-10 Topps Chrome Refractor', traits: { hof: 100, peak: 95, market: 85, position: 90, narrative: 95, unique: 100, longevity: 92 } },
-    { id: 'giannis', name: 'Giannis Antetokounmpo', era: '2013-14 Panini Prizm', traits: { hof: 95, peak: 95, market: 50, position: 70, narrative: 90, unique: 95, longevity: 80 } },
-    { id: 'luka',    name: 'Luka Dončić',       era: '2018-19 Panini Prizm', traits: { hof: 92, peak: 95, market: 80, position: 90, narrative: 90, unique: 95, longevity: 75 } },
-    { id: 'wemby',   name: 'Victor Wembanyama', era: '2023-24 Panini Prizm', traits: { hof: 90, peak: 95, market: 60, position: 65, narrative: 100, unique: 100, longevity: 70 } },
+    { id: 'jordan',  name: 'Michael Jordan',    era: '1986 Fleer',      outcomeValue: 100, traits: { hof: 100, peak: 100, market: 95, position: 70, narrative: 100, unique: 100, longevity: 90 } },
+    { id: 'kobe',    name: 'Kobe Bryant',       era: '1996-97 Topps Chrome Refractor', outcomeValue: 98, traits: { hof: 100, peak: 95, market: 100, position: 70, narrative: 100, unique: 92, longevity: 95 } },
+    { id: 'lebron',  name: 'LeBron James',      era: '2003-04 Topps Chrome', outcomeValue: 99, traits: { hof: 100, peak: 100, market: 95, position: 65, narrative: 100, unique: 95, longevity: 100 } },
+    { id: 'kg',      name: 'Kevin Garnett',     era: '1995-96 Topps',   outcomeValue: 78, traits: { hof: 98, peak: 90, market: 60, position: 78, narrative: 80, unique: 88, longevity: 95 } },
+    { id: 'curry',   name: 'Stephen Curry',     era: '2009-10 Topps Chrome Refractor', outcomeValue: 95, traits: { hof: 100, peak: 95, market: 85, position: 90, narrative: 95, unique: 100, longevity: 92 } },
+    { id: 'giannis', name: 'Giannis Antetokounmpo', era: '2013-14 Panini Prizm', outcomeValue: 88, traits: { hof: 95, peak: 95, market: 50, position: 70, narrative: 90, unique: 95, longevity: 80 } },
+    { id: 'luka',    name: 'Luka Dončić',       era: '2018-19 Panini Prizm', outcomeValue: 86, traits: { hof: 92, peak: 95, market: 80, position: 90, narrative: 90, unique: 95, longevity: 75 } },
+    { id: 'wemby',   name: 'Victor Wembanyama', era: '2023-24 Panini Prizm', outcomeValue: 90, traits: { hof: 90, peak: 95, market: 60, position: 65, narrative: 100, unique: 100, longevity: 70 } },
   ],
 };
 
@@ -308,48 +336,71 @@ const _LEGACY_INLINE_SEED = [
    ENGINE
    ============================================================================ */
 
-function cosineSimilarity(a, b, weights) {
-  let dot = 0, normA = 0, normB = 0;
+// Magnitude-aware trait distance (weighted, normalized to 0..1). Unlike cosine,
+// this respects how HIGH the traits are — a mediocre profile is genuinely far
+// from an elite one, not merely "the same shape pointed the same way."
+function traitDistance(a, b, weights) {
+  let sumSq = 0, sumW = 0;
   for (const key of Object.keys(weights)) {
     const w = weights[key];
-    const av = (a[key] ?? 0) * w;
-    const bv = (b[key] ?? 0) * w;
-    dot += av * bv;
-    normA += av * av;
-    normB += bv * bv;
+    const d = ((a[key] ?? 0) - (b[key] ?? 0)) / 100;
+    sumSq += w * d * d;
+    sumW += w;
   }
-  if (normA === 0 || normB === 0) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  return sumW ? Math.sqrt(sumSq / sumW) : 1;
+}
+
+// Softness of the outcome-weighted blend (smaller = more nearest-neighbor-like).
+const ARCHETYPE_TAU = 0.11;
+
+// Outcome band for an archetype's realized card value — drives the dossier copy.
+function archetypeBand(ov = 70) {
+  if (ov >= 85) return { label: 'Generational', cls: 'text-emerald-400 border-emerald-500/40', stance: 'bull' };
+  if (ov >= 70) return { label: 'Star-caliber', cls: 'text-emerald-400 border-emerald-500/40', stance: 'bull' };
+  if (ov >= 55) return { label: 'Solid regular', cls: 'text-amber-400 border-amber-500/40', stance: 'neutral' };
+  if (ov >= 40) return { label: 'Capped / cautionary', cls: 'text-orange-400 border-orange-500/40', stance: 'bear' };
+  return { label: 'Bust risk', cls: 'text-red-400 border-red-500/40', stance: 'bear' };
 }
 
 function findBestComp(cardTraits, sport) {
   const playbook = PLAYBOOKS[sport] || [];
   const weights = TRAIT_WEIGHTS[sport] || TRAIT_WEIGHTS.baseball;
-  let best = null;
-  let bestScore = -1;
-  for (const archetype of playbook) {
-    const sim = cosineSimilarity(cardTraits, archetype.traits, weights);
-    if (sim > bestScore) { bestScore = sim; best = archetype; }
-  }
-  // Identify the 2-3 traits doing the most lifting in the match.
-  const matchDrivers = best
-    ? Object.keys(weights)
-        .map((k) => ({
-          key: k,
-          weight: weights[k],
-          cardVal: cardTraits[k] ?? 0,
-          archVal: best.traits[k] ?? 0,
-          contribution: weights[k] * Math.min(cardTraits[k] ?? 0, best.traits[k] ?? 0),
-        }))
-        .sort((a, b) => b.contribution - a.contribution)
-        .slice(0, 3)
-    : [];
-  return { archetype: best, similarity: bestScore, drivers: matchDrivers };
+  if (!playbook.length) return { archetype: null, similarity: 0, signal: 70, drivers: [] };
+  // Distance to every archetype; closeness weight decays with distance.
+  const scored = playbook
+    .map((a) => {
+      const dist = traitDistance(cardTraits, a.traits, weights);
+      return { archetype: a, dist, weight: Math.exp(-dist / ARCHETYPE_TAU) };
+    })
+    .sort((x, y) => x.dist - y.dist);
+  const best = scored[0];
+  // Player signal: blend the archetypes' realized outcomeValues by closeness, so
+  // resembling a bust pulls the score down and resembling a legend lifts it.
+  const totW = scored.reduce((s, x) => s + x.weight, 0);
+  const signal = totW > 0
+    ? scored.reduce((s, x) => s + x.weight * (x.archetype.outcomeValue ?? 70), 0) / totW
+    : 70;
+  // Top 3 traits doing the most lifting in the closest match (shared strength).
+  const drivers = Object.keys(weights)
+    .map((k) => ({
+      key: k,
+      weight: weights[k],
+      cardVal: cardTraits[k] ?? 0,
+      archVal: best.archetype.traits[k] ?? 0,
+      contribution: weights[k] * Math.min(cardTraits[k] ?? 0, best.archetype.traits[k] ?? 0),
+    }))
+    .sort((a, b) => b.contribution - a.contribution)
+    .slice(0, 3);
+  return {
+    archetype: best.archetype,
+    similarity: Math.max(0, 1 - best.dist), // 0..1 closeness to the nearest comp
+    signal: Math.round(signal),             // outcome-weighted player value 0..100
+    drivers,
+  };
 }
 
 function computePlayerSignal(card) {
-  const { similarity } = findBestComp(card.traits, card.sport);
-  return Math.round(similarity * 100);
+  return findBestComp(card.traits, card.sport).signal;
 }
 
 function computeScarcityMultiplier(card) {
@@ -817,6 +868,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
 function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio, isPro, onUpgrade }) {
   const { playerSignal, scarcity, combinedScore } = computeCombinedScore(card);
   const comp = findBestComp(card.traits, card.sport);
+  const band = comp.archetype ? archetypeBand(comp.archetype.outcomeValue) : null;
   const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
   const ebayUrl = buildEbayLink(
     `${card.player} ${card.set} ${card.cardNumber || ''}`.replace(/·/g, ' ').replace(/\s+/g, ' ').trim()
@@ -907,10 +959,11 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
         <div>
           <div className="text-sm font-semibold text-zinc-200">Player · {playerSignal}</div>
           <p className="text-xs text-zinc-400 leading-relaxed mt-0.5">
-            How closely {card.player}’s seven-trait profile matches the historical premium-card
-            archetypes (a weighted similarity, 0–100). Closest match here is {comp.archetype.name} at{' '}
-            {Math.round(comp.similarity * 100)}%. Higher means a stronger resemblance to players whose
-            cards became premium.
+            We match {card.player}’s seven-trait profile against a roster of historical archetypes —
+            not just legends, but hyped names who stalled or busted — and weight each match by how
+            that player’s cards actually turned out. Closest here is {comp.archetype.name}{' '}
+            ({Math.round(comp.similarity * 100)}% similar, a {band ? band.label.toLowerCase() : '—'} outcome).
+            So resembling a bust drags this down; resembling a star lifts it.
           </p>
         </div>
         <div>
@@ -1008,12 +1061,20 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
         <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
           Archetype match · {Math.round(comp.similarity * 100)}% similar
         </div>
-        <div className="text-base font-semibold">{comp.archetype.name}</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="text-base font-semibold">{comp.archetype.name}</div>
+          {band && (
+            <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${band.cls}`}>{band.label}</span>
+          )}
+        </div>
         <div className="text-xs text-zinc-400 mb-3">{comp.archetype.era}</div>
         <div className="text-xs text-zinc-300 leading-relaxed">
-          The strongest historical pattern this card maps to. This comparison is not a prediction —
-          it's a framework: if {card.player}'s career continues to resemble {comp.archetype.name}'s
-          development on the traits below, the card has a credible path to premium status.
+          The closest historical profile this card maps to — not a prediction, a framework.{' '}
+          {band?.stance === 'bull'
+            ? `If ${card.player}'s career resembles ${comp.archetype.name}'s on the traits below, the card has a credible path to premium status.`
+            : band?.stance === 'neutral'
+            ? `${comp.archetype.name} settled in as a solid regular — real value, but card returns historically stayed capped here. Temper the upside.`
+            : `This is a cautionary comp: players matching ${comp.archetype.name}'s profile have historically stalled or busted. Treat the upside with real skepticism.`}
         </div>
         <div className="mt-3 space-y-2">
           {comp.drivers.map((d) => (
@@ -1137,8 +1198,10 @@ function LearnTab({ sport }) {
         <p className="text-sm text-zinc-300 leading-relaxed">
           Premium card values aren't random. Looking back at the cards that compounded the
           hardest — Mantle, Jeter, Griffey, Trout — they share a measurable profile across
-          seven traits. CardProspector scores current players against these archetypes and
-          combines that with real scarcity data to surface cards with credible upside.
+          seven traits. But the hyped names who stalled or busted — the Brandon Woods and Matt
+          Wieterses — share a profile too. CardProspector scores current players against a roster
+          of both, weighting each match by how that player's cards actually turned out, then
+          combines it with real scarcity data — to surface genuine upside and flag what to avoid.
         </p>
         <p className="text-xs text-zinc-400 leading-relaxed mt-2">
           Scope: this is built for <span className="text-zinc-300">modern prospects & rookies ({CONFIG.MIN_CARD_YEAR}–present)</span> —
