@@ -4,7 +4,8 @@
  * gets real prices (from the search response) but placeholder traits (pending
  * curation) and no pop — both surfaced by the console ✓/○ indicators.
  */
-import { getCards, createCard, recordPrice } from './db.js';
+import { getCards, createCard, recordPrice, setCardImage } from './db.js';
+import { searchCardImage } from './ebay.js';
 
 const TRAIT_KEYS = ['hof', 'peak', 'market', 'position', 'narrative', 'unique', 'longevity'];
 const pennies = (v) => (v != null && v !== '' ? Math.round(Number(v)) / 100 : null);
@@ -111,6 +112,7 @@ export async function pullCards({ sport = 'baseball', count = 10 }) {
   const chosen = pool.slice(0, n);
   const today = new Date().toISOString().slice(0, 10);
   const added = [];
+  const forImages = [];
   for (const r of chosen) {
     try {
       const id = await createCard({
@@ -120,9 +122,26 @@ export async function pullCards({ sport = 'baseball', count = 10 }) {
       }, { markReviewed: false });
       await recordPrice(id, { source: 'sportscardspro', ...r.prices, currency: 'USD', observedOn: today });
       added.push({ player: r.player, set: r.set, rawPrice: r.rawPrice });
+      const q = `${r.player} ${r.set} ${r.cardNumber || ''}`.replace(/·/g, ' ').replace(/\s+/g, ' ').trim();
+      forImages.push({ id, query: q });
     } catch {
       /* skip a bad row */
     }
   }
+
+  // Fetch eBay images best-effort in the background (throttled) so the pull
+  // returns fast. The nightly image-refresh job is the backstop for any misses.
+  if (forImages.length) {
+    (async () => {
+      for (const it of forImages) {
+        try {
+          const img = await searchCardImage(it.query);
+          if (img?.imageUrl) await setCardImage(it.id, img.imageUrl);
+        } catch { /* ignore */ }
+        await sleep(350);
+      }
+    })().catch(() => {});
+  }
+
   return { requested: n, inserted: added.length, available: pool.length, sport, added };
 }
