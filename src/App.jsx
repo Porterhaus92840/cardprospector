@@ -702,6 +702,9 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
   const [maxBuy, setMaxBuy] = useState(0); // 0 = any
   const [showLegend, setShowLegend] = useState(false);
   const [query, setQuery] = useState('');
+  const [pageSize, setPageSize] = useState(25); // 0 = all
+  const [page, setPage] = useState(0);
+  const topRef = useRef(null);
 
   const rank = { short: 0, mid: 1, long: 2 };
   const comparators = {
@@ -726,6 +729,29 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
     );
   }
   scored = scored.sort(comparators[sortBy] || comparators.flip);
+
+  // Pagination — let the user cap how many cards render at once.
+  const total = scored.length;
+  const perPage = pageSize === 0 ? Math.max(1, total) : pageSize;
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
+  const curPage = Math.min(page, pageCount - 1);
+  const start = curPage * perPage;
+  const visible = pageSize === 0 ? scored : scored.slice(start, start + perPage);
+  const go = (p) => setPage(Math.max(0, Math.min(pageCount - 1, p)));
+
+  // Reset to page 1 when the result set changes; scroll to top on page change.
+  useEffect(() => { setPage(0); }, [query, maxBuy, sortBy, pageSize]);
+  useEffect(() => { topRef.current?.scrollIntoView({ block: 'nearest' }); }, [curPage]);
+
+  const pager = () => (
+    pageCount > 1 ? (
+      <div className="flex items-center justify-center gap-3 text-xs">
+        <button onClick={() => go(curPage - 1)} disabled={curPage === 0} className="px-3 py-1 rounded border border-zinc-700 text-zinc-300 disabled:opacity-40 hover:border-zinc-500">← Prev</button>
+        <span className="text-zinc-500">Page {curPage + 1} of {pageCount}</span>
+        <button onClick={() => go(curPage + 1)} disabled={curPage >= pageCount - 1} className="px-3 py-1 rounded border border-zinc-700 text-zinc-300 disabled:opacity-40 hover:border-zinc-500">Next →</button>
+      </div>
+    ) : null
+  );
 
   return (
     <div className="px-4 py-4 space-y-3">
@@ -768,6 +794,12 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
             </select>
           </>
         )}
+        <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300" title="Cards per page">
+          <option value={25}>Show: 25</option>
+          <option value={50}>Show: 50</option>
+          <option value={100}>Show: 100</option>
+          <option value={0}>Show: All</option>
+        </select>
         <button onClick={() => setShowLegend((v) => !v)} className="text-xs text-zinc-400 hover:text-zinc-200 ml-auto">ⓘ Hold horizons</button>
       </div>
 
@@ -788,12 +820,18 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
         </div>
       )}
 
-      {scored.length === 0 && (
+      {total === 0 && (
         <div className="text-xs text-zinc-500 text-center py-6">
           {q ? `No cards match “${query.trim()}”.` : 'No cards match this filter.'}
         </div>
       )}
-      {scored.map(({ card, combinedScore, flip, horizon }) => {
+      {total > 0 && (
+        <div ref={topRef} className="flex items-center justify-between gap-2 text-xs scroll-mt-2">
+          <span className="text-zinc-500">Showing {start + 1}–{Math.min(start + perPage, total)} of {total}</span>
+          {pager()}
+        </div>
+      )}
+      {visible.map(({ card, combinedScore, flip, horizon }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
         const isWatched = watchlist.includes(card.id);
         const rec = computeRecommendation(flip);
@@ -861,6 +899,11 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
           </button>
         );
       })}
+      {total > 0 && (
+        <div className="pt-2">
+          {pager()}
+        </div>
+      )}
     </div>
   );
 }
