@@ -2020,8 +2020,6 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [details, setDetails] = useState({ team: '', position: '', card_set: '', card_number: '', variant_id: '' });
-  const [dSaving, setDSaving] = useState(false);
-  const [dMsg, setDMsg] = useState(null);
   const updDetail = (k, v) => setDetails((s) => ({ ...s, [k]: v }));
 
   // Prefill from the selected card's current traits + details + warning signs.
@@ -2038,42 +2036,28 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
       variant_id: c?.variantId || (SCARCITY_LADDER[0]?.id || ''),
     });
     setMsg(null);
-    setDMsg(null);
   }, [selectedCardId, cards]);
 
-  const saveDetails = async () => {
-    if (!selectedCardId) return;
-    setDSaving(true);
-    setDMsg(null);
-    try {
-      const r = await fetch('/api/admin/cards/details', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
-        body: JSON.stringify({ id: selectedCardId, ...details }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) setDMsg({ ok: false, text: d.error || `Failed (${r.status})` });
-      else { setDMsg({ ok: true, text: 'Card details saved.' }); onSaved(); }
-    } catch {
-      setDMsg({ ok: false, text: 'Could not reach the server.' });
-    } finally {
-      setDSaving(false);
-    }
-  };
-
+  // One save writes everything: card details (team/position/set/#/variant) AND
+  // the traits + warning signs.
   const save = async () => {
     if (!selectedCardId) return;
     setSaving(true);
     setMsg(null);
     try {
-      const r = await fetch('/api/admin/cards/traits', {
+      const rd = await fetch('/api/admin/cards/details', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ id: selectedCardId, ...details }),
+      });
+      const rt = await fetch('/api/admin/cards/traits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
         body: JSON.stringify({ id: selectedCardId, traits, bear_case: bearCase }),
       });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) setMsg({ ok: false, text: d.error || `Failed (${r.status})` });
-      else { setMsg({ ok: true, text: 'Traits updated.' }); onSaved(); }
+      const dt = await rt.json().catch(() => ({}));
+      if (!rt.ok || !rd.ok) setMsg({ ok: false, text: dt.error || `Save failed (${rt.status})` });
+      else { setMsg({ ok: true, text: 'Card saved (details + traits).' }); onSaved(); }
     } catch {
       setMsg({ ok: false, text: 'Could not reach the server.' });
     } finally {
@@ -2090,8 +2074,9 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
   return (
     <div className="space-y-2">
       <div className="text-[11px] text-zinc-400 leading-relaxed">
-        Adjust the trait scores + warning signs for a card already in the catalog. Saved scores
-        immediately drive its Combined score, ranking, and dossier.
+        Edit a card already in the catalog — details (team / position / set / # / variant), trait
+        scores, and warning signs. One <span className="text-zinc-200">Save card</span> at the bottom
+        writes all of it; saved scores immediately drive the Combined score, ranking, and dossier.
       </div>
       <div className="flex items-center justify-between text-[11px]">
         <span className="text-zinc-400">
@@ -2130,14 +2115,6 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
             ))}
           </select>
         </div>
-        <button onClick={saveDetails} disabled={dSaving} className="w-full bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-100 font-medium rounded py-2 text-sm">
-          {dSaving ? 'Saving…' : 'Save card details'}
-        </button>
-        {dMsg && (
-          <div className={`text-xs rounded p-2 ${dMsg.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
-            {dMsg.text}
-          </div>
-        )}
       </div>
 
       <div className="flex items-center justify-between pt-1">
@@ -2183,7 +2160,7 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
       />
 
       <button onClick={save} disabled={saving || !selectedCardId} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
-        {saving ? 'Saving…' : 'Save traits'}
+        {saving ? 'Saving…' : 'Save card'}
       </button>
       {msg && (
         <div className={`text-xs rounded p-2 ${msg.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
