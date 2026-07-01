@@ -30,11 +30,11 @@ const CONFIG = {
   // Used for portfolio cert verification only — pop data is NOT in this API.
   PSA_API_TOKEN: '',
   // Grading-flip model (tunable). Costs below are real, not assumptions:
-  //  - TAG Basic grading is $22/card (10-card minimum order).
+  //  - PSA basic (Value) grading — $/card (set GRADING_COST to your PSA tier).
   //  - eBay trading-card final value fee is 13.6% + $0.40/order (2026).
   // (Cards sold $1,000+ may qualify for a 50% FVF discount promo — not modeled.)
   BUY_DISCOUNT: 0.10,        // target buy = raw price minus this
-  GRADING_COST: 22,          // TAG Basic, $/card
+  GRADING_COST: 25,          // PSA basic grading, $/card (placeholder — confirm)
   EBAY_FEE_RATE: 0.136,      // eBay final value fee
   EBAY_PER_ORDER_FEE: 0.40,
   // Below this best-case graded net return (%), the framework flags a card as
@@ -445,16 +445,15 @@ function computeCombinedScore(card) {
 // dossier table so "best grade" highlighting stays in sync.
 const GRADE_ROWS = [
   ['PSA 7', 'g7'], ['PSA 8', 'g8'], ['PSA 9', 'g9'], ['Grade 9.5', 'g95'],
-  ['PSA 10', 'psa10'], ['BGS 10', 'bgs10'], ['TAG 10', 'tag10'],
+  ['PSA 10', 'psa10'], ['BGS 10', 'bgs10'],
 ];
 
 /* ----------------------------------------------------------------------------
-   GRADING FLIP — buy the raw card (at a discount), grade it (TAG), sell graded.
-   All costs are real: TAG grading fee + eBay final value fee + per-order fee.
-   We can't source TAG sale prices, so we show the NET return for each graded
-   comp we DO have (PSA 10, BGS 10; TAG when known) and let the user judge.
-   flipScore blends engine conviction with the (PSA-10-referenced) net arbitrage.
-   Returns null unless the card has a raw price and at least one graded comp.
+   GRADING FLIP — buy the raw card (at a discount), grade it (PSA), sell graded.
+   All costs are real: PSA grading fee + eBay final value fee + per-order fee.
+   We show the NET return for each graded comp we have (PSA 7-10, BGS 10) so the
+   user can judge. flipScore blends engine conviction with the (PSA-10-referenced)
+   net arbitrage. Returns null unless the card has a raw price and a graded comp.
    ---------------------------------------------------------------------------- */
 function computeFlip(card, combinedScore) {
   const raw = card.price?.raw;
@@ -477,12 +476,11 @@ function computeFlip(card, combinedScore) {
     g95: netFor(card.price?.g95),
     psa10: netFor(card.price?.psa10),
     bgs10: netFor(card.price?.bgs10),
-    tag10: netFor(card.price?.tag10),
   };
   // Headline/ranking uses PSA 10 (deepest market) when present, else BGS 10.
-  const primary = grades.psa10 || grades.bgs10 || grades.tag10;
+  const primary = grades.psa10 || grades.bgs10;
   if (!primary) return null;
-  const primaryLabel = grades.psa10 ? 'PSA 10' : grades.bgs10 ? 'BGS 10' : 'TAG 10';
+  const primaryLabel = grades.psa10 ? 'PSA 10' : 'BGS 10';
 
   // Best net-return grade — the optimal sell target to highlight.
   let bestLabel = null, bestNet = -Infinity, bestPct = null;
@@ -1013,7 +1011,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
               <span className="tabular-nums text-amber-100">${flip.targetBuy.toLocaleString()}</span>
             </div>
             <div className="flex justify-between px-2">
-              <span className="text-zinc-400">TAG grading (Basic)</span>
+              <span className="text-zinc-400">PSA grading</span>
               <span className="tabular-nums">${flip.gradingCost}</span>
             </div>
             <div className="flex justify-between border-t border-zinc-800 pt-1.5 font-medium px-2">
@@ -1042,7 +1040,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
                         {g.net >= 0 ? '+' : ''}${g.net.toLocaleString()} ({g.pct}%)
                       </span>
                     ) : (
-                      <span className="text-zinc-600">{label === 'TAG 10' ? 'enter price' : '—'}</span>
+                      <span className="text-zinc-600">—</span>
                     )}
                   </div>
                 </React.Fragment>
@@ -1051,8 +1049,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
           </div>
           <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
             Net = sale price − {Math.round(CONFIG.EBAY_FEE_RATE * 100)}% eBay fee − ${CONFIG.EBAY_PER_ORDER_FEE.toFixed(2)} −
-            cost basis. Low grades (PSA 7/8) can sell below raw — often not worth grading. You grade with TAG;
-            TAG resale isn’t tracked by our source, so enter real TAG comps in the admin panel. Assumes the card
+            cost basis. Low grades (PSA 7/8) can sell below raw — often not worth grading. Assumes the card
             earns that grade. Not financial or investment advice — for entertainment only.
           </p>
         </section>
@@ -1504,9 +1501,6 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
   const [listings, setListings] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
-  const [tagPrice, setTagPriceInput] = useState('');
-  const [tagSaving, setTagSaving] = useState(false);
-  const [tagMsg, setTagMsg] = useState(null);
 
   const save = async () => {
     if (!selectedCardId) return;
@@ -1540,7 +1534,7 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
     }
   };
 
-  // Prefill the pop + TAG inputs with the selected card's current values.
+  // Prefill the pop inputs with the selected card's current values.
   useEffect(() => {
     const c = cards.find((x) => x.id === selectedCardId);
     const p = c?.pop;
@@ -1552,29 +1546,7 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
     setPsa7(s(p?.psa7));
     setListings(s(p?.listingsActive));
     setMsg(null);
-    setTagPriceInput(c?.price?.tag10 != null ? String(c.price.tag10) : '');
-    setTagMsg(null);
   }, [selectedCardId, cards]);
-
-  const saveTag = async () => {
-    if (!selectedCardId) return;
-    setTagSaving(true);
-    setTagMsg(null);
-    try {
-      const res = await fetch('/api/admin/tag-price', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
-        body: JSON.stringify({ id: selectedCardId, tag10: tagPrice }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) setTagMsg({ ok: false, text: data.error || `Failed (${res.status})` });
-      else { setTagMsg({ ok: true, text: tagPrice === '' ? 'TAG price cleared.' : 'TAG price saved.' }); onSaved(); }
-    } catch {
-      setTagMsg({ ok: false, text: 'Could not reach the server.' });
-    } finally {
-      setTagSaving(false);
-    }
-  };
 
   const withPop = cards.filter((c) => c.pop);
   const gradedSum = [psa10, psa9, psa8, psa7].reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
@@ -1620,32 +1592,6 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
             Enter today’s PSA pop report numbers — the 30-day velocity builds automatically from
             saved snapshots, so there’s no “30 days ago” to source. Leave all blank and save to clear.
           </div>
-        </div>
-
-        <div className="mt-6 pt-4 border-t border-zinc-800 space-y-3">
-          <div className="text-[11px] uppercase tracking-widest text-zinc-500">TAG 10 price · manual</div>
-          <div className="text-[11px] text-zinc-400 leading-relaxed">
-            SportsCardsPro doesn’t track TAG. Enter a real TAG 10 sold price for the selected card to
-            drive its TAG number on the dossier. Leave blank and save to clear it.
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              inputMode="decimal"
-              placeholder="TAG 10 sold price ($)"
-              value={tagPrice}
-              onChange={(e) => setTagPriceInput(e.target.value)}
-              className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
-            />
-            <button onClick={saveTag} disabled={tagSaving} className="bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-medium rounded px-4 text-sm">
-              {tagSaving ? '…' : 'Save'}
-            </button>
-          </div>
-          {tagMsg && (
-            <div className={`text-xs rounded p-2 ${tagMsg.ok ? 'bg-orange-500/10 border border-orange-500/30 text-orange-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
-              {tagMsg.text}
-            </div>
-          )}
         </div>
 
         <div className="mt-6">
@@ -2078,21 +2024,38 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
     }
   };
 
+  const reviewed = (c) => Boolean(c.traitsUpdatedAt);
+  const sortedCards = [...cards].sort((a, b) => (reviewed(a) === reviewed(b) ? 0 : reviewed(a) ? 1 : -1));
+  const doneCount = cards.filter(reviewed).length;
+  const selCard = cards.find((c) => c.id === selectedCardId);
+  const fmtDate = (d) => { try { return new Date(d).toLocaleDateString(); } catch { return d; } };
+
   return (
     <div className="space-y-2">
       <div className="text-[11px] text-zinc-400 leading-relaxed">
         Adjust the trait scores + warning signs for a card already in the catalog. Saved scores
         immediately drive its Combined score, ranking, and dossier.
       </div>
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="text-zinc-400">
+          <span className="text-emerald-400 font-medium">{doneCount}</span> of {cards.length} cards updated
+        </span>
+        <span className="text-zinc-600">✓ updated · ○ pending</span>
+      </div>
       <select
         value={selectedCardId}
         onChange={(e) => setSelectedCardId(e.target.value)}
         className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
       >
-        {cards.map((c) => (
-          <option key={c.id} value={c.id}>{c.player} · {c.set}</option>
+        {sortedCards.map((c) => (
+          <option key={c.id} value={c.id}>{reviewed(c) ? '✓' : '○'} {c.player} · {c.set}</option>
         ))}
       </select>
+      <div className="text-[11px]">
+        {reviewed(selCard)
+          ? <span className="text-emerald-400/80">✓ Traits last updated {fmtDate(selCard.traitsUpdatedAt)}</span>
+          : <span className="text-amber-400/90">○ Not updated yet — this card still has its seeded/default traits.</span>}
+      </div>
 
       <div className="flex items-center justify-between pt-1">
         <div className="text-[10px] uppercase tracking-wider text-zinc-500">Traits (0–100)</div>

@@ -44,6 +44,7 @@ const CREATE_TABLE_SQL = `
     tag10_price          DECIMAL(12,2) NULL,
     image_url            VARCHAR(512) NULL,
     traits               JSON         NOT NULL,
+    traits_updated_at    DATETIME     NULL,
     bear_case            TEXT,
     pop_psa10            INT          NULL,
     pop_psa10_30d_prior  INT          NULL,
@@ -183,6 +184,7 @@ function rowToCard(row) {
     sportscardsproId: row.sportscardspro_id,
     image: row.image_url || null,
     traits,
+    traitsUpdatedAt: row.traits_updated_at || null,
     pop: null, // populated from pop_history in getCards
     bearCase: row.bear_case,
   };
@@ -213,6 +215,7 @@ export async function initDb() {
   // Migrations for columns added after the initial release (Control Console).
   await ensureColumn('users', 'tier_expires_at', 'DATETIME NULL');
   await ensureColumn('users', 'banned', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('cards', 'traits_updated_at', 'DATETIME NULL');
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -297,7 +300,6 @@ export async function getPriceSummaries() {
       g95: num(r.price_g95),
       psa10,
       bgs10,
-      tag10: null, // overridden by cards.tag10_price in getCards (manual entry)
       currency: r.currency,
       source: r.source,
       sampleSize: r.sample_size,
@@ -364,14 +366,7 @@ export async function getCards() {
   const [prices, pops] = await Promise.all([getPriceSummaries(), getPopSummaries()]);
   return rows.map((r) => {
     const card = rowToCard(r);
-    const tag = r.tag10_price != null ? Number(r.tag10_price) : null;
-    let price = prices[r.id] || null;
-    if (price) {
-      price.tag10 = tag; // manual TAG price from the cards table
-    } else if (tag != null) {
-      price = { raw: null, g7: null, g8: null, g9: null, g95: null, psa10: null, bgs10: null, tag10: tag, currency: 'USD', source: 'manual', sampleSize: null, asOf: null, change30dRaw: null };
-    }
-    return { ...card, price, pop: pops[r.id] || null };
+    return { ...card, price: prices[r.id] || null, pop: pops[r.id] || null };
   });
 }
 
@@ -385,11 +380,6 @@ export async function recordPrice(cardId, { source, priceRaw = null, priceG7 = n
   );
 }
 
-/** Set (or clear, with null) the manually-entered TAG 10 price for a card. */
-export async function setTagPrice(cardId, price) {
-  const [result] = await pool.query('UPDATE cards SET tag10_price = ? WHERE id = ?', [price, cardId]);
-  return result.affectedRows > 0;
-}
 
 /** Cache a card's image URL (from the eBay Browse API). */
 export async function setCardImage(cardId, imageUrl) {
@@ -477,8 +467,8 @@ export async function createCard(c) {
   const id = c.id || `${slugify(c.player)}-${Math.random().toString(36).slice(2, 7)}`;
   await pool.query(
     `INSERT INTO cards
-      (id, sport, player, team, position, card_set, card_number, variant_id, ask_price, sportscardspro_id, traits, bear_case, sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (id, sport, player, team, position, card_set, card_number, variant_id, ask_price, sportscardspro_id, traits, traits_updated_at, bear_case, sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW(),?,?)`,
     [id, c.sport || 'baseball', c.player, c.team || null, c.position || null, c.card_set || null, c.card_number || null,
      c.variant_id || null, 0, c.sportscardspro_id || null, JSON.stringify(c.traits || {}), c.bear_case || null, 2000]
   );
@@ -487,7 +477,7 @@ export async function createCard(c) {
 
 /** Update an existing card's trait scores (and optionally its warning signs). */
 export async function updateCardTraits(id, traits, bearCase) {
-  const sets = ['traits = ?'];
+  const sets = ['traits = ?', 'traits_updated_at = NOW()'];
   const vals = [JSON.stringify(traits || {})];
   if (bearCase !== undefined) { sets.push('bear_case = ?'); vals.push(bearCase || null); }
   vals.push(id);
