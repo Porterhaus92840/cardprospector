@@ -1238,21 +1238,25 @@ function LearnTab({ sport }) {
         <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
           The Playbook · {sport}
         </div>
-        <div className="space-y-2">
-          {playbook.map((arch) => (
-            <div key={arch.id} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
-              <div className="font-medium">{arch.name}</div>
-              <div className="text-xs text-zinc-400">{arch.era}</div>
-              <div className="grid grid-cols-7 gap-1 mt-2">
-                {Object.entries(arch.traits).map(([k, v]) => (
-                  <div key={k} className="text-center">
-                    <div className="text-[9px] text-zinc-500 capitalize">{k.slice(0, 3)}</div>
-                    <div className="text-xs tabular-nums">{v}</div>
-                  </div>
-                ))}
+        <p className="text-xs text-zinc-400 leading-relaxed mb-3">
+          Every card is benchmarked against a roster of historical profiles — from generational
+          icons to the hyped names that stalled or busted — weighted by how each one’s cards
+          actually turned out. The blend across the whole roster, not any single comp, drives the
+          score.
+        </p>
+        <div className="space-y-1.5">
+          {playbook.map((arch) => {
+            const b = archetypeBand(arch.outcomeValue);
+            return (
+              <div key={arch.id} className="flex items-center justify-between gap-2 bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm truncate">{arch.name}</div>
+                  <div className="text-[11px] text-zinc-500">{arch.era}</div>
+                </div>
+                <span className={`px-2 py-0.5 rounded border text-[9px] uppercase tracking-wider whitespace-nowrap ${b.cls}`}>{b.label}</span>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>
