@@ -678,7 +678,7 @@ function Header({ sport, onSportChange }) {
         </select>
       </div>
       <p className="mt-1 text-xs text-zinc-400">
-        Reverse-engineering premium cards into flip frameworks.
+        Reverse-engineering modern premium cards into flip frameworks.
       </p>
     </header>
   );
