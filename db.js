@@ -464,14 +464,14 @@ export async function expireBetas() {
 }
 
 /** Create a card directly in the shared catalog (admin). Returns the new id. */
-export async function createCard(c) {
+export async function createCard(c, { markReviewed = true } = {}) {
   const id = c.id || `${slugify(c.player)}-${Math.random().toString(36).slice(2, 7)}`;
   await pool.query(
     `INSERT INTO cards
       (id, sport, player, team, position, card_set, card_number, variant_id, ask_price, sportscardspro_id, traits, traits_updated_at, bear_case, sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW(),?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,${markReviewed ? 'NOW()' : 'NULL'},?,?)`,
     [id, c.sport || 'baseball', c.player, c.team || null, c.position || null, c.card_set || null, c.card_number || null,
-     c.variant_id || null, 0, c.sportscardspro_id || null, JSON.stringify(c.traits || {}), c.bear_case || null, 2000]
+     c.variant_id || null, Number(c.ask_price) || 0, c.sportscardspro_id || null, JSON.stringify(c.traits || {}), c.bear_case || null, c.sort_order ?? 2000]
   );
   return id;
 }
