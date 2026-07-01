@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import {
   initDb, getCards, recordPop, recordPrice, setCardImage,
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
+  setPasswordResetToken, getUserByResetToken, updateUserPassword,
   getPortfolio, setPortfolioEntry, removePortfolioEntry,
   setStripeCustomer, setSubscription, setUserTierByEmail,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
@@ -26,6 +27,7 @@ import {
 } from './db.js';
 import { pullCards, pullSports } from './catalog.js';
 import { scoreCard, archetypeList } from './scoring.js';
+import { sendPasswordResetEmail } from './email.js';
 import { getProvider } from './pricing.js';
 import { searchCardImage } from './ebay.js';
 import {
@@ -254,6 +256,50 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE, { ...cookieOptions(), maxAge: undefined });
   res.json({ ok: true });
+});
+
+// Request a password reset. Always responds generically (never reveals whether
+// an account exists). Emails a signed, 1-hour reset link when the account is real.
+app.post('/api/auth/forgot', async (req, res) => {
+  const { email } = req.body || {};
+  try {
+    if (typeof email === 'string' && email.includes('@')) {
+      const user = await getUserByEmail(email);
+      if (user && !user.banned) {
+        const token = crypto.randomBytes(32).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        await setPasswordResetToken(user.id, tokenHash, new Date(Date.now() + 60 * 60 * 1000));
+        const resetUrl = `${APP_URL}/reset?token=${token}`;
+        try {
+          await sendPasswordResetEmail(user.email, resetUrl);
+        } catch (e) {
+          // e.g. sending domain not verified yet — log the link so it isn't lost.
+          console.error('[auth] reset email failed:', e.message, '| link:', resetUrl);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[auth] forgot failed:', err.message);
+  }
+  res.json({ ok: true });
+});
+
+// Complete a password reset with the emailed token.
+app.post('/api/auth/reset', async (req, res) => {
+  const { token, password } = req.body || {};
+  if (typeof token !== 'string' || !token) return res.status(400).json({ error: 'Invalid or missing reset link.' });
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const user = await getUserByResetToken(tokenHash);
+    if (!user) return res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' });
+    await updateUserPassword(user.id, await hashPassword(password));
+    res.cookie(SESSION_COOKIE, signToken(user.id), cookieOptions()); // sign them in
+    res.json({ ok: true, user: publicUser(user) });
+  } catch (err) {
+    console.error('[auth] reset failed:', err.message);
+    res.status(500).json({ error: 'Could not reset password' });
+  }
 });
 
 app.get('/api/auth/me', async (req, res) => {

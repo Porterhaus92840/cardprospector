@@ -217,6 +217,8 @@ export async function initDb() {
   await ensureColumn('users', 'tier_expires_at', 'DATETIME NULL');
   await ensureColumn('users', 'banned', 'TINYINT(1) NOT NULL DEFAULT 0');
   await ensureColumn('cards', 'traits_updated_at', 'DATETIME NULL');
+  await ensureColumn('users', 'reset_token_hash', 'VARCHAR(64) NULL');
+  await ensureColumn('users', 'reset_expires_at', 'DATETIME NULL');
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -403,6 +405,25 @@ export async function createUser(email, passwordHash) {
 export async function getUserByEmail(email) {
   const [[row]] = await pool.query('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
   return row || null;
+}
+
+/** Store a password-reset token hash + expiry for a user (single active token). */
+export async function setPasswordResetToken(userId, tokenHash, expiresAt) {
+  await pool.query('UPDATE users SET reset_token_hash = ?, reset_expires_at = ? WHERE id = ?', [tokenHash, expiresAt, userId]);
+}
+
+/** Find a user by an unexpired reset-token hash. */
+export async function getUserByResetToken(tokenHash) {
+  const [[row]] = await pool.query(
+    'SELECT * FROM users WHERE reset_token_hash = ? AND reset_expires_at IS NOT NULL AND reset_expires_at > NOW()',
+    [tokenHash]
+  );
+  return row || null;
+}
+
+/** Set a new password hash and clear any reset token. */
+export async function updateUserPassword(userId, passwordHash) {
+  await pool.query('UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_expires_at = NULL WHERE id = ?', [passwordHash, userId]);
 }
 
 export async function getUserById(id) {

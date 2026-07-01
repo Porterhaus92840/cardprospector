@@ -2205,12 +2205,22 @@ function AuthModal({ onClose, onAuthed }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [sent, setSent] = useState(false); // forgot-password confirmation
 
   const submit = async () => {
     if (busy) return;
     setBusy(true);
     setErr(null);
     try {
+      if (mode === 'forgot') {
+        await fetch('/api/auth/forgot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim() }),
+        });
+        setSent(true);
+        return;
+      }
       const res = await fetch(`/api/auth/${mode === 'signup' ? 'signup' : 'login'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2230,37 +2240,62 @@ function AuthModal({ onClose, onAuthed }) {
     <div className="fixed inset-0 bg-zinc-950/90 z-50 flex items-center justify-center p-4">
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-sm">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">{mode === 'signup' ? 'Create account' : 'Sign in'}</h2>
+          <h2 className="text-lg font-bold">{mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Reset password' : 'Sign in'}</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">✕</button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-3">
-          <input
-            type="email" autoComplete="email" placeholder="Email" value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm"
-          />
-          <input
-            type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-            placeholder="Password (8+ characters)" value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm"
-          />
-          {err && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded p-2">{err}</div>}
-          <button type="submit" disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded-lg py-2.5">
-            {busy ? '…' : mode === 'signup' ? 'Create account' : 'Sign in'}
-          </button>
-        </form>
-        <div className="text-xs text-zinc-400 text-center mt-3">
-          {mode === 'signup' ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <button onClick={() => { setMode(mode === 'signup' ? 'login' : 'signup'); setErr(null); }} className="text-orange-400 hover:text-orange-300">
-            {mode === 'signup' ? 'Sign in' : 'Create one'}
-          </button>
-        </div>
-        <p className="text-[10px] text-zinc-500 text-center mt-3 leading-relaxed">
-          For educational and informational purposes only — not financial or investment advice. By continuing you agree to our{' '}
-          <a href="/terms" className="text-zinc-400 underline">Terms</a> and{' '}
-          <a href="/privacy" className="text-zinc-400 underline">Privacy Policy</a>.
-        </p>
+
+        {mode === 'forgot' && sent ? (
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-300 leading-relaxed">
+              If an account exists for <span className="text-zinc-100">{email.trim()}</span>, we’ve emailed a
+              password-reset link. Check your inbox (and spam) — it expires in 1 hour.
+            </p>
+            <button onClick={() => { setMode('login'); setSent(false); setErr(null); }} className="w-full bg-zinc-800 hover:bg-zinc-700 rounded-lg py-2.5 text-sm font-medium">
+              Back to sign in
+            </button>
+          </div>
+        ) : (
+          <>
+            <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-3">
+              {mode === 'forgot' && (
+                <p className="text-xs text-zinc-400 leading-relaxed">Enter your email and we’ll send a link to reset your password.</p>
+              )}
+              <input
+                type="email" autoComplete="email" placeholder="Email" value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm"
+              />
+              {mode !== 'forgot' && (
+                <input
+                  type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                  placeholder="Password (8+ characters)" value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm"
+                />
+              )}
+              {err && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded p-2">{err}</div>}
+              <button type="submit" disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded-lg py-2.5">
+                {busy ? '…' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : 'Sign in'}
+              </button>
+            </form>
+            {mode === 'login' && (
+              <div className="text-xs text-center mt-2">
+                <button onClick={() => { setMode('forgot'); setErr(null); }} className="text-zinc-400 hover:text-zinc-200">Forgot password?</button>
+              </div>
+            )}
+            <div className="text-xs text-zinc-400 text-center mt-3">
+              {mode === 'signup' ? 'Already have an account?' : mode === 'forgot' ? 'Remembered it?' : "Don't have an account?"}{' '}
+              <button onClick={() => { setMode(mode === 'signup' ? 'login' : mode === 'forgot' ? 'login' : 'signup'); setErr(null); }} className="text-orange-400 hover:text-orange-300">
+                {mode === 'signup' ? 'Sign in' : mode === 'forgot' ? 'Sign in' : 'Create one'}
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-500 text-center mt-3 leading-relaxed">
+              For educational and informational purposes only — not financial or investment advice. By continuing you agree to our{' '}
+              <a href="/terms" className="text-zinc-400 underline">Terms</a> and{' '}
+              <a href="/privacy" className="text-zinc-400 underline">Privacy Policy</a>.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -2551,14 +2586,71 @@ function AdminSubmissions({ adminToken, onPublished }) {
   );
 }
 
+/* Standalone password-reset page (opened from the emailed link at /reset?token=). */
+function ResetPasswordPage() {
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [done, setDone] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    if (password.length < 8) { setErr('Password must be at least 8 characters.'); return; }
+    if (password !== confirm) { setErr('Passwords do not match.'); return; }
+    setBusy(true);
+    try {
+      const res = await fetch('/api/auth/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) setErr(d.error || 'Could not reset password.');
+      else setDone(true);
+    } catch {
+      setErr('Could not reach the server.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="h-[100dvh] w-full overflow-y-auto overflow-x-hidden bg-zinc-950 text-zinc-100 flex items-center justify-center p-4" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+        <div className="text-2xl font-bold tracking-tight mb-4">Card<span className="text-orange-500">Prospector</span></div>
+        {!token ? (
+          <div className="text-sm text-zinc-300 leading-relaxed">This reset link is missing its token. Request a new one from the sign-in screen.</div>
+        ) : done ? (
+          <div className="space-y-3">
+            <div className="text-sm text-emerald-300">Your password has been reset and you’re signed in.</div>
+            <a href="/" className="block text-center w-full bg-orange-500 hover:bg-orange-400 text-zinc-950 font-semibold rounded-lg py-2.5">Go to CardProspector</a>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="space-y-3">
+            <h2 className="text-lg font-bold">Choose a new password</h2>
+            <input type="password" autoComplete="new-password" placeholder="New password (8+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm" />
+            <input type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm" />
+            {err && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded p-2">{err}</div>}
+            <button type="submit" disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded-lg py-2.5">{busy ? '…' : 'Reset password'}</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================================
    APP ROOT
    ============================================================================ */
 
 export default function CardProspector() {
-  // Standalone legal pages (/terms, /privacy, /refunds). Path is fixed per load.
+  // Standalone pages routed by pathname (fixed per load — links do full navigations).
   const legalDoc = LEGAL_DOC_FOR_PATH(window.location.pathname);
   if (legalDoc) return <LegalPage doc={legalDoc} />;
+  if (window.location.pathname === '/reset') return <ResetPasswordPage />;
 
   const [state, setState] = useState(loadState);
   const [sport, setSport] = useState('baseball');
