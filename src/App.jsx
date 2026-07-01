@@ -1269,7 +1269,93 @@ const TRAIT_BLURBS = {
   longevity: 'How long the player stays elite. Long careers compound narrative and rebuild scarcity through multiple grading waves.',
 };
 
-function PortfolioTab({ portfolio, allCards, onRemove }) {
+// Conditions a card can be bought in, mapped to the matching price field.
+const PORTFOLIO_CONDITIONS = [
+  { id: 'raw',   label: 'Raw (ungraded)', key: 'raw' },
+  { id: 'g7',    label: 'PSA 7',          key: 'g7' },
+  { id: 'g8',    label: 'PSA 8',          key: 'g8' },
+  { id: 'g9',    label: 'PSA 9',          key: 'g9' },
+  { id: 'g95',   label: 'Grade 9.5',      key: 'g95' },
+  { id: 'psa10', label: 'PSA 10',         key: 'psa10' },
+  { id: 'bgs10', label: 'BGS 10',         key: 'bgs10' },
+];
+const CONDITION_META = Object.fromEntries(PORTFOLIO_CONDITIONS.map((c) => [c.id, c]));
+
+// Hold / sell guidance for a card the user already owns.
+function computeHoldSignal(card, entry) {
+  const condition = entry.condition || 'raw';
+  const { combinedScore } = computeCombinedScore(card);
+  const horizon = computeHorizon(card);
+  const flip = computeFlip(card, combinedScore);
+  const rec = computeRecommendation(flip);
+  if (condition === 'raw' && flip && rec?.recommended) {
+    return {
+      action: 'Hold & grade',
+      cls: 'bg-sky-500/15 text-sky-300 border-sky-500/40',
+      why: `Grading to a PSA 10 projects about +${flip.returnPct}% after fees — worth grading, then flipping.`,
+    };
+  }
+  if (horizon.key === 'short') {
+    return {
+      action: 'Consider selling',
+      cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
+      why: 'Value is largely realized near-term — a good window to take the gain rather than sit on it.',
+    };
+  }
+  return {
+    action: 'Hold',
+    cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
+    why: horizon.key === 'long'
+      ? 'Durable profile with room left — value should keep compounding. Sit tight.'
+      : 'Real upside ahead — hold through the next catalyst, then reassess.',
+  };
+}
+
+// Modal to capture purchase condition + price when adding a card to the portfolio.
+function PortfolioAddModal({ card, existing, onClose, onConfirm }) {
+  const priceFor = (key) => (card.price?.[key] != null ? String(Math.round(card.price[key])) : '');
+  const [condition, setCondition] = useState(existing?.condition || 'raw');
+  const [price, setPrice] = useState(
+    existing?.purchasePrice != null ? String(existing.purchasePrice) : priceFor(CONDITION_META[existing?.condition || 'raw'].key)
+  );
+  const onCond = (c) => { setCondition(c); setPrice(priceFor(CONDITION_META[c].key)); };
+  const mkt = card.price?.[CONDITION_META[condition].key];
+  return (
+    <div className="fixed inset-0 bg-zinc-950/90 z-50 overflow-y-auto p-4" onClick={onClose}>
+      <div className="max-w-sm mx-auto mt-16 bg-zinc-900 border border-zinc-700 rounded-xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold">{existing ? 'Edit holding' : 'Add to portfolio'}</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200 text-sm">✕</button>
+        </div>
+        <div>
+          <div className="font-medium text-sm">{card.player}</div>
+          <div className="text-xs text-zinc-400">{card.set}{card.cardNumber ? ` · #${card.cardNumber}` : ''}</div>
+        </div>
+        <label className="block">
+          <span className="text-[11px] uppercase tracking-wider text-zinc-500">Condition when purchased</span>
+          <select value={condition} onChange={(e) => onCond(e.target.value)} className={`${INPUT_CLS} mt-1`}>
+            {PORTFOLIO_CONDITIONS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[11px] uppercase tracking-wider text-zinc-500">What you actually paid ($)</span>
+          <input type="number" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Purchase price" className={`${INPUT_CLS} mt-1`} />
+          {mkt != null && (
+            <span className="text-[10px] text-zinc-500">Current market for {CONDITION_META[condition].label} ≈ ${Math.round(mkt).toLocaleString()}</span>
+          )}
+        </label>
+        <button
+          onClick={() => onConfirm(card.id, { condition, purchasePrice: Math.max(0, Number(price) || 0) })}
+          className="w-full bg-orange-500 hover:bg-orange-400 text-zinc-950 font-semibold rounded-lg py-2.5"
+        >
+          {existing ? 'Update holding' : 'Add to portfolio'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PortfolioTab({ portfolio, allCards, onRemove, onEdit }) {
   const [certNumber, setCertNumber] = useState('');
   const [certResult, setCertResult] = useState(null);
   const [verifying, setVerifying] = useState(false);
@@ -1286,13 +1372,17 @@ function PortfolioTab({ portfolio, allCards, onRemove }) {
   const owned = portfolio.map((entry) => {
     const card = allCards.find((c) => c.id === entry.cardId);
     if (!card) return null;
-    const { combinedScore } = computeCombinedScore(card);
-    const pnl = combinedScore >= 70 ? entry.purchasePrice * 0.15 : -entry.purchasePrice * 0.05;
-    return { entry, card, combinedScore, pnl };
+    const condition = entry.condition || 'raw';
+    const meta = CONDITION_META[condition] || CONDITION_META.raw;
+    const currentValue = card.price?.[meta.key] ?? null;
+    const pnl = currentValue != null ? currentValue - (entry.purchasePrice || 0) : null;
+    const signal = computeHoldSignal(card, entry);
+    return { entry, card, meta, currentValue, pnl, signal };
   }).filter(Boolean);
 
-  const totalCost = owned.reduce((s, o) => s + o.entry.purchasePrice, 0);
-  const totalPnL = owned.reduce((s, o) => s + o.pnl, 0);
+  const totalCost = owned.reduce((s, o) => s + (o.entry.purchasePrice || 0), 0);
+  const totalPnL = owned.reduce((s, o) => s + (o.pnl || 0), 0);
+  const anyUnpriced = owned.some((o) => o.pnl == null);
 
   return (
     <div className="px-4 py-4 pb-8 space-y-5">
@@ -1310,34 +1400,46 @@ function PortfolioTab({ portfolio, allCards, onRemove }) {
                 <div className="text-lg font-semibold tabular-nums">${totalCost.toLocaleString()}</div>
               </div>
               <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500">Est. P&L</div>
-                <div className={`text-lg font-semibold tabular-nums ${totalPnL >= 0 ? 'text-orange-400' : 'text-zinc-400'}`}>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500">P&L vs market</div>
+                <div className={`text-lg font-semibold tabular-nums ${totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {totalPnL >= 0 ? '+' : ''}${Math.round(totalPnL).toLocaleString()}
                 </div>
+                {anyUnpriced && <div className="text-[9px] text-zinc-600 leading-tight mt-0.5">excludes cards without live prices</div>}
               </div>
             </div>
             <div className="space-y-2">
-              {owned.map(({ entry, card, combinedScore, pnl }) => (
-                <div key={entry.cardId} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{card.player}</div>
-                      <div className="text-xs text-zinc-400 truncate">
-                        Bought ${entry.purchasePrice.toLocaleString()}
+              {owned.map(({ entry, card, meta, currentValue, pnl, signal }) => {
+                const pct = entry.purchasePrice > 0 && pnl != null ? Math.round((pnl / entry.purchasePrice) * 100) : null;
+                return (
+                  <div key={entry.cardId} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{card.player}</div>
+                        <div className="text-xs text-zinc-400 truncate">
+                          {card.set}{card.cardNumber ? ` · #${card.cardNumber}` : ''}
+                        </div>
+                        <div className="text-[11px] text-zinc-500 mt-0.5">
+                          {meta.label} · bought ${entry.purchasePrice.toLocaleString()}
+                          {currentValue != null ? ` · now $${Math.round(currentValue).toLocaleString()}` : ''}
+                        </div>
+                        {pnl != null && (
+                          <div className={`text-xs mt-0.5 font-medium ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString()}{pct != null ? ` (${pct >= 0 ? '+' : ''}${pct}%)` : ''}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className={`px-2 py-0.5 rounded border text-[9px] uppercase tracking-wider whitespace-nowrap ${signal.cls}`}>{signal.action}</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => onEdit(entry.cardId)} className="text-[10px] text-zinc-500 hover:text-zinc-300">Edit</button>
+                          <button onClick={() => onRemove(entry.cardId)} className="text-[10px] text-zinc-500 hover:text-zinc-300">Remove</button>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <ScoreBadge value={combinedScore} label="Now" />
-                      <button
-                        onClick={() => onRemove(entry.cardId)}
-                        className="text-[10px] text-zinc-500 hover:text-zinc-300"
-                      >
-                        Remove
-                      </button>
-                    </div>
+                    <p className="text-[10px] text-zinc-500 mt-2 leading-relaxed">{signal.why}</p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -2638,16 +2740,19 @@ export default function CardProspector() {
     });
   }, [user, isPro]);
 
-  const addToPortfolio = useCallback((id) => {
+  // Opening the portfolio-add modal (collects condition + price before saving).
+  const [portfolioModalId, setPortfolioModalId] = useState(null);
+  const openAddToPortfolio = useCallback((id) => setPortfolioModalId(id), []);
+  const confirmAddToPortfolio = useCallback((id, details) => {
     setState((s) => {
-      if (s.portfolio.some((p) => p.cardId === id)) return s;
-      const card = allCards.find((c) => c.id === id);
-      return {
-        ...s,
-        portfolio: [...s.portfolio, { cardId: id, purchasePrice: card?.askPrice || 0, addedAt: Date.now() }],
-      };
+      const exists = s.portfolio.some((p) => p.cardId === id);
+      const portfolio = exists
+        ? s.portfolio.map((p) => (p.cardId === id ? { ...p, ...details } : p))
+        : [...s.portfolio, { cardId: id, ...details, addedAt: Date.now() }];
+      return { ...s, portfolio };
     });
-  }, [allCards]);
+    setPortfolioModalId(null);
+  }, []);
 
   const removeFromPortfolio = useCallback((id) => {
     setState((s) => ({ ...s, portfolio: s.portfolio.filter((p) => p.cardId !== id) }));
@@ -2726,7 +2831,7 @@ export default function CardProspector() {
             onBack={() => setSelectedCardId(null)}
             isWatched={watchlist.includes(selectedCard.id)}
             onToggleWatch={toggleWatch}
-            onAddToPortfolio={addToPortfolio}
+            onAddToPortfolio={openAddToPortfolio}
             isPro={isPro}
             onUpgrade={promptUpgrade}
           />
@@ -2747,6 +2852,7 @@ export default function CardProspector() {
             portfolio={state.portfolio}
             allCards={allCards}
             onRemove={removeFromPortfolio}
+            onEdit={openAddToPortfolio}
           />
         )}
 
@@ -2771,6 +2877,14 @@ export default function CardProspector() {
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
       {upgradeOpen && <UpgradeModal onClose={() => setUpgradeOpen(false)} />}
       {submitOpen && <SubmissionModal onClose={() => setSubmitOpen(false)} />}
+      {portfolioModalId && allCards.find((c) => c.id === portfolioModalId) && (
+        <PortfolioAddModal
+          card={allCards.find((c) => c.id === portfolioModalId)}
+          existing={state.portfolio.find((p) => p.cardId === portfolioModalId)}
+          onClose={() => setPortfolioModalId(null)}
+          onConfirm={confirmAddToPortfolio}
+        />
+      )}
     </div>
   );
 }
