@@ -22,8 +22,9 @@ import {
   getPortfolio, setPortfolioEntry, removePortfolioEntry,
   setStripeCustomer, setSubscription, setUserTierByEmail,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
-  getUsers, setUserBanned, setUserTierById, getAdminStats, createCard, updateCardTraits, expireBetas,
+  getUsers, setUserBanned, setUserTierById, getAdminStats, createCard, updateCardTraits, updateCardDetails, expireBetas,
 } from './db.js';
+import { pullCards, pullSports } from './catalog.js';
 import { getProvider } from './pricing.js';
 import { searchCardImage } from './ebay.js';
 import {
@@ -468,6 +469,40 @@ app.post('/api/admin/cards/traits', async (req, res) => {
   } catch (err) {
     console.error('[api] update traits failed:', err.message);
     res.status(500).json({ error: 'Could not update traits' });
+  }
+});
+
+// Update an existing card's display metadata (team/position/set/#/variant).
+app.post('/api/admin/cards/details', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { id, team, position, card_set, card_number, variant_id } = req.body || {};
+  if (!id || typeof id !== 'string') return res.status(400).json({ error: 'id is required' });
+  try {
+    const updated = await updateCardDetails(id, { team, position, card_set, card_number, variant_id });
+    res.json({ ok: true, updated });
+  } catch (err) {
+    console.error('[api] update details failed:', err.message);
+    res.status(500).json({ error: 'Could not update card details' });
+  }
+});
+
+// Which sports the "Pull cards" function supports.
+app.get('/api/admin/pull-sports', (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  res.json({ sports: pullSports() });
+});
+
+// Pull N distinct new cards for a sport from SportsCardsPro (real prices,
+// placeholder traits, no pop). Long-running (~15s) — the client shows progress.
+app.post('/api/admin/pull-cards', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { sport, count } = req.body || {};
+  try {
+    const result = await pullCards({ sport, count });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[api] pull-cards failed:', err.message);
+    res.status(500).json({ error: err.message || 'Pull failed' });
   }
 });
 

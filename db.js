@@ -476,6 +476,19 @@ export async function createCard(c, { markReviewed = true } = {}) {
   return id;
 }
 
+/** Update an existing card's display metadata (team/position/set/#/variant). */
+export async function updateCardDetails(id, f) {
+  const cols = { team: 'team', position: 'position', card_set: 'card_set', card_number: 'card_number', variant_id: 'variant_id' };
+  const sets = [], vals = [];
+  for (const k of Object.keys(cols)) {
+    if (f[k] !== undefined) { sets.push(`${cols[k]} = ?`); vals.push(f[k] === '' ? null : f[k]); }
+  }
+  if (!sets.length) return false;
+  vals.push(id);
+  const [r] = await pool.query(`UPDATE cards SET ${sets.join(', ')} WHERE id = ?`, vals);
+  return r.affectedRows > 0;
+}
+
 /** Update an existing card's trait scores (and optionally its warning signs). */
 export async function updateCardTraits(id, traits, bearCase) {
   const sets = ['traits = ?', 'traits_updated_at = NOW()'];

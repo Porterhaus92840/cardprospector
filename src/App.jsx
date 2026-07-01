@@ -2019,15 +2019,47 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
   const [showGuide, setShowGuide] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [details, setDetails] = useState({ team: '', position: '', card_set: '', card_number: '', variant_id: '' });
+  const [dSaving, setDSaving] = useState(false);
+  const [dMsg, setDMsg] = useState(null);
+  const updDetail = (k, v) => setDetails((s) => ({ ...s, [k]: v }));
 
-  // Prefill from the selected card's current traits + warning signs.
+  // Prefill from the selected card's current traits + details + warning signs.
   useEffect(() => {
     const c = cards.find((x) => x.id === selectedCardId);
     const base = Object.fromEntries(SUB_TRAITS.map((t) => [t, Number(c?.traits?.[t]) || 0]));
     setTraits(base);
     setBearCase(c?.bearCase || '');
+    setDetails({
+      team: c?.team || '',
+      position: c?.position || '',
+      card_set: c?.set || '',
+      card_number: c?.cardNumber || '',
+      variant_id: c?.variantId || (SCARCITY_LADDER[0]?.id || ''),
+    });
     setMsg(null);
+    setDMsg(null);
   }, [selectedCardId, cards]);
+
+  const saveDetails = async () => {
+    if (!selectedCardId) return;
+    setDSaving(true);
+    setDMsg(null);
+    try {
+      const r = await fetch('/api/admin/cards/details', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ id: selectedCardId, ...details }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setDMsg({ ok: false, text: d.error || `Failed (${r.status})` });
+      else { setDMsg({ ok: true, text: 'Card details saved.' }); onSaved(); }
+    } catch {
+      setDMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setDSaving(false);
+    }
+  };
 
   const save = async () => {
     if (!selectedCardId) return;
@@ -2080,6 +2112,32 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
         {reviewed(selCard)
           ? <span className="text-emerald-400/80">✓ Traits last updated {fmtDate(selCard.traitsUpdatedAt)}</span>
           : <span className="text-amber-400/90">○ Not updated yet — this card still has its seeded/default traits.</span>}
+      </div>
+
+      {/* Card details — team/position/set/#/variant (esp. for auto-pulled cards) */}
+      <div className="pt-2 border-t border-zinc-800 space-y-2">
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Card details</div>
+        <div className="grid grid-cols-2 gap-2">
+          <input className={INPUT_CLS} placeholder="Team" value={details.team} onChange={(e) => updDetail('team', e.target.value)} />
+          <input className={INPUT_CLS} placeholder="Position" value={details.position} onChange={(e) => updDetail('position', e.target.value)} />
+        </div>
+        <input className={INPUT_CLS} placeholder="Set" value={details.card_set} onChange={(e) => updDetail('card_set', e.target.value)} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className={INPUT_CLS} placeholder="Card #" value={details.card_number} onChange={(e) => updDetail('card_number', e.target.value)} />
+          <select className={INPUT_CLS} value={details.variant_id} onChange={(e) => updDetail('variant_id', e.target.value)}>
+            {SCARCITY_LADDER.map((v) => (
+              <option key={v.id} value={v.id}>{v.label}</option>
+            ))}
+          </select>
+        </div>
+        <button onClick={saveDetails} disabled={dSaving} className="w-full bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-100 font-medium rounded py-2 text-sm">
+          {dSaving ? 'Saving…' : 'Save card details'}
+        </button>
+        {dMsg && (
+          <div className={`text-xs rounded p-2 ${dMsg.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>
+            {dMsg.text}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between pt-1">
@@ -2136,11 +2194,91 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
   );
 }
 
+function AdminPullCards({ adminToken, onDone }) {
+  const [sports, setSports] = useState([{ id: 'baseball', label: 'Baseball' }]);
+  const [sport, setSport] = useState('baseball');
+  const [count, setCount] = useState('10');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/admin/pull-sports', { headers: { 'x-admin-token': adminToken } })
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d.sports) && d.sports.length) setSports(d.sports); })
+      .catch(() => {});
+  }, [adminToken]);
+
+  const pull = async () => {
+    const n = Math.max(1, Math.min(200, parseInt(count, 10) || 0));
+    setBusy(true);
+    setMsg(null);
+    setResult(null);
+    try {
+      const r = await fetch('/api/admin/pull-cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ sport, count: n }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setMsg({ ok: false, text: d.error || `Failed (${r.status})` });
+      else { setResult(d); onDone && onDone(); }
+    } catch {
+      setMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] text-zinc-400 leading-relaxed">
+        Pull new cards straight from SportsCardsPro — real prices, distinct players, no duplicates of
+        what’s already in the catalog. New cards arrive with placeholder traits (○ pending) and no
+        pop; curate them on the Edit-traits and Pop/price screens.
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-wider text-zinc-500">How many</span>
+          <input type="number" inputMode="numeric" min="1" max="200" value={count} onChange={(e) => setCount(e.target.value)} className={`${INPUT_CLS} mt-1`} />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-wider text-zinc-500">Sport</span>
+          <select value={sport} onChange={(e) => setSport(e.target.value)} className={`${INPUT_CLS} mt-1`}>
+            {sports.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <button onClick={pull} disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded py-2.5">
+        {busy ? 'Pulling… (takes ~15s)' : 'Pull cards'}
+      </button>
+      {msg && <div className="text-xs rounded p-2 bg-zinc-800 border border-zinc-700 text-zinc-300">{msg.text}</div>}
+      {result && (
+        <div className="space-y-2">
+          <div className="text-xs rounded p-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+            Pulled {result.inserted} new {result.sport} card{result.inserted === 1 ? '' : 's'}
+            {result.inserted < result.requested ? ` (requested ${result.requested}; only ${result.available} new distinct players were available)` : ''}.
+          </div>
+          <div className="space-y-1 max-h-64 overflow-y-auto">
+            {(result.added || []).map((a, i) => (
+              <div key={i} className="text-[11px] bg-zinc-900/60 border border-zinc-800 rounded px-2 py-1 flex justify-between gap-2">
+                <span className="truncate">{a.player}<span className="text-zinc-500"> · {a.set}</span></span>
+                <span className="text-zinc-400 tabular-nums shrink-0">${Math.round(a.rawPrice).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ADMIN_NAV = [
   { id: 'dashboard', icon: '▦', label: 'Dashboard' },
   { id: 'users', icon: '◉', label: 'Accounts' },
   { id: 'submissions', icon: '⇄', label: 'Submissions' },
   { id: 'cards', icon: '＋', label: 'New card' },
+  { id: 'pull', icon: '⇩', label: 'Pull cards' },
   { id: 'traits', icon: '✎', label: 'Edit traits' },
   { id: 'pricing', icon: '＄', label: 'Pop / price' },
 ];
@@ -2186,6 +2324,7 @@ function AdminConsole({ cards, adminToken, onSaved, onClose, onLock }) {
           {screen === 'users' && <AdminUsers adminToken={adminToken} />}
           {screen === 'submissions' && <AdminSubmissions adminToken={adminToken} onPublished={onSaved} />}
           {screen === 'cards' && <AdminCreateCard adminToken={adminToken} onCreated={onSaved} />}
+          {screen === 'pull' && <AdminPullCards adminToken={adminToken} onDone={onSaved} />}
           {screen === 'traits' && <AdminEditTraits cards={cards} adminToken={adminToken} onSaved={onSaved} />}
           {screen === 'pricing' && <AdminPopEntry cards={cards} adminToken={adminToken} onSaved={onSaved} />}
         </div>
