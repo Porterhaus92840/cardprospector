@@ -1502,6 +1502,14 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
+  // The operator's LOCAL date (YYYY-MM-DD) — the pop-tracking day resets at
+  // their local midnight, and the snapshot is keyed to this same day.
+  const today = (() => {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  })();
+
   const save = async () => {
     if (!selectedCardId) return;
     setSaving(true);
@@ -1518,6 +1526,7 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
           psa8,
           psa7,
           listings_active: listings,
+          observedOn: today,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1553,9 +1562,9 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
   const totalNum = parseInt(total, 10) || 0;
   const totalMismatch = total !== '' && gradedSum > totalNum;
 
-  const hasPop = (c) => Boolean(c?.pop);
-  const sortedCards = [...cards].sort((a, b) => (hasPop(a) === hasPop(b) ? 0 : hasPop(a) ? 1 : -1));
-  const doneCount = cards.filter(hasPop).length;
+  const enteredToday = (c) => c?.pop?.asOf === today;
+  const sortedCards = [...cards].sort((a, b) => (enteredToday(a) === enteredToday(b) ? 0 : enteredToday(a) ? 1 : -1));
+  const doneCount = cards.filter(enteredToday).length;
   const selCard = cards.find((c) => c.id === selectedCardId);
 
   return (
@@ -1563,9 +1572,9 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-zinc-400">
-              <span className="text-emerald-400 font-medium">{doneCount}</span> of {cards.length} pop reports entered
+              <span className="text-emerald-400 font-medium">{doneCount}</span> of {cards.length} updated today
             </span>
-            <span className="text-zinc-600">✓ entered · ○ pending</span>
+            <span className="text-zinc-600">✓ done today · ○ needs update</span>
           </div>
           <select
             value={selectedCardId}
@@ -1573,13 +1582,13 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
             className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
           >
             {sortedCards.map((c) => (
-              <option key={c.id} value={c.id}>{hasPop(c) ? '✓' : '○'} {c.player} · {c.set}</option>
+              <option key={c.id} value={c.id}>{enteredToday(c) ? '✓' : '○'} {c.player} · {c.set}</option>
             ))}
           </select>
           <div className="text-[11px]">
-            {hasPop(selCard)
-              ? <span className="text-emerald-400/80">✓ Pop last entered {selCard.pop.asOf || '—'}</span>
-              : <span className="text-amber-400/90">○ No pop report entered yet.</span>}
+            {enteredToday(selCard)
+              ? <span className="text-emerald-400/80">✓ Updated today</span>
+              : <span className="text-amber-400/90">○ Needs today’s update{selCard?.pop?.asOf ? ` · last entered ${selCard.pop.asOf}` : ''}</span>}
           </div>
           <input type="number" inputMode="numeric" placeholder="Total PSA population (from pop report)" value={total} onChange={(e)=>setTotal(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
           <div className="grid grid-cols-2 gap-2">

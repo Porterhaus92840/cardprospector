@@ -162,6 +162,11 @@ app.post('/api/admin/pop', async (req, res) => {
     const n = parseInt(v, 10);
     return Number.isFinite(n) && n >= 0 ? n : null;
   };
+  // Snapshot day: use the admin's local date (sent by the client) so the daily
+  // pop-tracking resets at the operator's midnight, not UTC. Fall back to UTC.
+  const clientDay = typeof req.body.observedOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.observedOn)
+    ? req.body.observedOn
+    : new Date().toISOString().slice(0, 10);
   const pop = {
     total: toIntOrNull(req.body.total),
     psa10: toIntOrNull(req.body.psa10),
@@ -169,7 +174,7 @@ app.post('/api/admin/pop', async (req, res) => {
     psa8: toIntOrNull(req.body.psa8),
     psa7: toIntOrNull(req.body.psa7),
     listings_active: toIntOrNull(req.body.listings_active),
-    observedOn: new Date().toISOString().slice(0, 10),
+    observedOn: clientDay,
   };
 
   // Sanity: the entered grades can't exceed the PSA total.

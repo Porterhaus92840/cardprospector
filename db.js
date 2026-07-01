@@ -27,6 +27,7 @@ const pool = mysql.createPool({
   connectionLimit: 5,
   charset: 'utf8mb4',
   namedPlaceholders: false,
+  dateStrings: true, // return DATE/DATETIME as 'YYYY-MM-DD[...]' strings (no TZ shift)
 });
 
 const CREATE_TABLE_SQL = `
