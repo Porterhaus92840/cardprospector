@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import FEATURED_CARDS_SEED from './data/cards.seed.json';
 import { LegalPage, LEGAL_DOC_FOR_PATH } from './Legal.jsx';
 
 /* ============================================================================
@@ -75,62 +74,9 @@ const STORAGE_KEY = 'cardprospector:v2';
    - longevity:  Sustained career length
    ============================================================================ */
 
-/* Each archetype carries a `traits` profile (the player's realized 7-trait shape)
-   and an `outcomeValue` 0-100 — how premium their cards actually became / how the
-   career played out. The engine matches a card to the nearest profiles by
-   magnitude-aware distance, then blends those archetypes' outcomeValues into the
-   player signal — so resembling a bust drags the score down, resembling a legend
-   lifts it. Tiers span the full outcome range, not just the greats. */
-const PLAYBOOKS = {
-  baseball: [
-    // — Generational (the ceiling) —
-    { id: 'mantle',  name: 'Mickey Mantle',    era: '1951 Bowman',        outcomeValue: 100, traits: { hof: 100, peak: 98, market: 100, position: 95, narrative: 98, unique: 92, longevity: 85 } },
-    { id: 'griffey', name: 'Ken Griffey Jr.',  era: '1989 Upper Deck',    outcomeValue: 97,  traits: { hof: 100, peak: 92, market: 70, position: 95, narrative: 90, unique: 88, longevity: 80 } },
-    { id: 'trout',   name: 'Mike Trout',       era: '2011 Topps Update',  outcomeValue: 95,  traits: { hof: 98, peak: 100, market: 55, position: 95, narrative: 75, unique: 95, longevity: 75 } },
-    { id: 'ohtani',  name: 'Shohei Ohtani',    era: '2018 Topps Chrome',  outcomeValue: 98,  traits: { hof: 95, peak: 100, market: 95, position: 80, narrative: 100, unique: 100, longevity: 70 } },
-    // — Star / HOF-track —
-    { id: 'jeter',   name: 'Derek Jeter',      era: '1993 SP Foil',       outcomeValue: 92,  traits: { hof: 100, peak: 78, market: 100, position: 95, narrative: 96, unique: 70, longevity: 98 } },
-    { id: 'soto',    name: 'Juan Soto',        era: '2018 Bowman Chrome', outcomeValue: 88,  traits: { hof: 92, peak: 90, market: 95, position: 65, narrative: 88, unique: 85, longevity: 80 } },
-    { id: 'judge',   name: 'Aaron Judge',      era: '2013 Bowman Chrome', outcomeValue: 86,  traits: { hof: 85, peak: 95, market: 100, position: 60, narrative: 92, unique: 90, longevity: 65 } },
-    { id: 'acuna',   name: 'Ronald Acuña Jr.', era: '2018 Bowman Chrome', outcomeValue: 84,  traits: { hof: 88, peak: 95, market: 65, position: 75, narrative: 85, unique: 88, longevity: 70 } },
-    { id: 'harper',  name: 'Bryce Harper',     era: '2011 Bowman Chrome', outcomeValue: 85,  traits: { hof: 90, peak: 90, market: 85, position: 60, narrative: 90, unique: 82, longevity: 82 } },
-    { id: 'betts',   name: 'Mookie Betts',     era: '2014 Bowman Chrome', outcomeValue: 88,  traits: { hof: 93, peak: 92, market: 90, position: 80, narrative: 80, unique: 88, longevity: 85 } },
-    // — Solid regular / borderline (the realistic middle) —
-    { id: 'votto',   name: 'Joey Votto',       era: '2007 Bowman Chrome', outcomeValue: 60,  traits: { hof: 80, peak: 82, market: 45, position: 55, narrative: 55, unique: 75, longevity: 78 } },
-    { id: 'wright',  name: 'David Wright',      era: '2004 Topps Chrome',  outcomeValue: 58,  traits: { hof: 70, peak: 82, market: 90, position: 80, narrative: 78, unique: 70, longevity: 55 } },
-    { id: 'pence',   name: 'Hunter Pence',     era: '2007 Topps',         outcomeValue: 45,  traits: { hof: 40, peak: 62, market: 65, position: 55, narrative: 60, unique: 55, longevity: 70 } },
-    { id: 'abreu',   name: 'José Abreu',       era: '2014 Topps Chrome',  outcomeValue: 42,  traits: { hof: 45, peak: 75, market: 60, position: 45, narrative: 50, unique: 60, longevity: 60 } },
-    // — Plateaued / cautionary (hyped, then faded) —
-    { id: 'wieters', name: 'Matt Wieters',     era: '2009 Bowman Chrome', outcomeValue: 38,  traits: { hof: 48, peak: 60, market: 55, position: 100, narrative: 65, unique: 55, longevity: 55 } },
-    { id: 'hosmer',  name: 'Eric Hosmer',      era: '2011 Bowman Chrome', outcomeValue: 40,  traits: { hof: 42, peak: 62, market: 70, position: 55, narrative: 60, unique: 50, longevity: 68 } },
-    { id: 'buxton',  name: 'Byron Buxton',     era: '2013 Bowman Chrome', outcomeValue: 42,  traits: { hof: 50, peak: 80, market: 50, position: 95, narrative: 62, unique: 90, longevity: 35 } },
-    { id: 'myers',   name: 'Wil Myers',        era: '2013 Bowman Chrome', outcomeValue: 38,  traits: { hof: 40, peak: 65, market: 60, position: 60, narrative: 62, unique: 58, longevity: 55 } },
-    // — Bust / flameout (the downside floor) —
-    { id: 'wood',    name: 'Brandon Wood',     era: '2006 Bowman Chrome', outcomeValue: 16,  traits: { hof: 25, peak: 55, market: 55, position: 90, narrative: 55, unique: 60, longevity: 30 } },
-    { id: 'delmon',  name: 'Delmon Young',     era: '2005 Bowman Chrome', outcomeValue: 22,  traits: { hof: 30, peak: 58, market: 60, position: 55, narrative: 60, unique: 55, longevity: 45 } },
-    { id: 'montero', name: 'Jesús Montero',    era: '2011 Bowman Chrome', outcomeValue: 18,  traits: { hof: 28, peak: 60, market: 80, position: 60, narrative: 65, unique: 62, longevity: 30 } },
-    // — Pitchers (a different risk + card-premium profile) —
-    { id: 'kershaw', name: 'Clayton Kershaw',  era: '2006 Bowman Chrome', outcomeValue: 80,  traits: { hof: 98, peak: 98, market: 90, position: 40, narrative: 80, unique: 90, longevity: 80 } },
-    { id: 'verlander', name: 'Justin Verlander', era: '2005 Bowman Chrome', outcomeValue: 70, traits: { hof: 95, peak: 90, market: 75, position: 40, narrative: 72, unique: 82, longevity: 92 } },
-    { id: 'strasburg', name: 'Stephen Strasburg', era: '2010 Bowman Chrome', outcomeValue: 40, traits: { hof: 45, peak: 88, market: 80, position: 40, narrative: 78, unique: 88, longevity: 30 } },
-  ],
-  // Stage 2 — populated but engine doesn't activate until sport selector ships.
-  basketball: [
-    { id: 'jordan',  name: 'Michael Jordan',    era: '1986 Fleer',      outcomeValue: 100, traits: { hof: 100, peak: 100, market: 95, position: 70, narrative: 100, unique: 100, longevity: 90 } },
-    { id: 'kobe',    name: 'Kobe Bryant',       era: '1996-97 Topps Chrome Refractor', outcomeValue: 98, traits: { hof: 100, peak: 95, market: 100, position: 70, narrative: 100, unique: 92, longevity: 95 } },
-    { id: 'lebron',  name: 'LeBron James',      era: '2003-04 Topps Chrome', outcomeValue: 99, traits: { hof: 100, peak: 100, market: 95, position: 65, narrative: 100, unique: 95, longevity: 100 } },
-    { id: 'kg',      name: 'Kevin Garnett',     era: '1995-96 Topps',   outcomeValue: 78, traits: { hof: 98, peak: 90, market: 60, position: 78, narrative: 80, unique: 88, longevity: 95 } },
-    { id: 'curry',   name: 'Stephen Curry',     era: '2009-10 Topps Chrome Refractor', outcomeValue: 95, traits: { hof: 100, peak: 95, market: 85, position: 90, narrative: 95, unique: 100, longevity: 92 } },
-    { id: 'giannis', name: 'Giannis Antetokounmpo', era: '2013-14 Panini Prizm', outcomeValue: 88, traits: { hof: 95, peak: 95, market: 50, position: 70, narrative: 90, unique: 95, longevity: 80 } },
-    { id: 'luka',    name: 'Luka Dončić',       era: '2018-19 Panini Prizm', outcomeValue: 86, traits: { hof: 92, peak: 95, market: 80, position: 90, narrative: 90, unique: 95, longevity: 75 } },
-    { id: 'wemby',   name: 'Victor Wembanyama', era: '2023-24 Panini Prizm', outcomeValue: 90, traits: { hof: 90, peak: 95, market: 60, position: 65, narrative: 100, unique: 100, longevity: 70 } },
-  ],
-};
-
-const TRAIT_WEIGHTS = {
-  baseball:  { hof: 0.20, peak: 0.18, market: 0.12, position: 0.10, narrative: 0.18, unique: 0.12, longevity: 0.10 },
-  basketball:{ hof: 0.18, peak: 0.18, market: 0.10, position: 0.08, narrative: 0.22, unique: 0.16, longevity: 0.08 },
-};
+/* The archetype PLAYBOOKS + TRAIT_WEIGHTS (the model) now live SERVER-SIDE in
+   scoring.js and never ship to the browser. The Learn tab fetches a display-only
+   roster (names/eras/tier) from GET /api/archetypes. */
 
 /* ============================================================================
    SCARCITY LADDER — 15 parallel variants from base RC raw to Superfractor 1/1
@@ -140,22 +86,24 @@ const TRAIT_WEIGHTS = {
    on Topps Chrome / Bowman Chrome RCs.
    ============================================================================ */
 
+// Parallel variants — display labels only. The scarcity RARITY multipliers that
+// these feed live server-side in scoring.js (never shipped to the browser).
 const SCARCITY_LADDER = [
-  { id: 'base_raw',         label: 'Base RC (Raw)',                rarity: 1.00, print: null },
-  { id: 'base_psa9',        label: 'Base RC PSA 9',                rarity: 1.15, print: null },
-  { id: 'base_psa10',       label: 'Base RC PSA 10',               rarity: 1.40, print: null },
-  { id: 'refractor',        label: 'Refractor',                    rarity: 1.30, print: null },
-  { id: 'refractor_psa10',  label: 'Refractor PSA 10',             rarity: 1.65, print: null },
-  { id: 'xfractor',         label: 'X-Fractor / Mosaic',           rarity: 1.55, print: 299 },
-  { id: 'blue',             label: 'Blue Refractor /150',          rarity: 1.85, print: 150 },
-  { id: 'green',            label: 'Green Refractor /99',          rarity: 2.10, print: 99 },
-  { id: 'gold',             label: 'Gold Refractor /50',           rarity: 2.40, print: 50 },
-  { id: 'orange',           label: 'Orange Refractor /25',         rarity: 2.65, print: 25 },
-  { id: 'red',              label: 'Red Refractor /5',             rarity: 2.85, print: 5 },
-  { id: 'auto_base',        label: 'Base Auto',                    rarity: 1.80, print: null },
-  { id: 'auto_refractor',   label: 'Refractor Auto /499',          rarity: 2.05, print: 499 },
-  { id: 'auto_gold',        label: 'Gold Auto /50',                rarity: 2.70, print: 50 },
-  { id: 'superfractor',     label: 'Superfractor 1/1',             rarity: 3.00, print: 1 },
+  { id: 'base_raw',         label: 'Base RC (Raw)' },
+  { id: 'base_psa9',        label: 'Base RC PSA 9' },
+  { id: 'base_psa10',       label: 'Base RC PSA 10' },
+  { id: 'refractor',        label: 'Refractor' },
+  { id: 'refractor_psa10',  label: 'Refractor PSA 10' },
+  { id: 'xfractor',         label: 'X-Fractor / Mosaic' },
+  { id: 'blue',             label: 'Blue Refractor /150' },
+  { id: 'green',            label: 'Green Refractor /99' },
+  { id: 'gold',             label: 'Gold Refractor /50' },
+  { id: 'orange',           label: 'Orange Refractor /25' },
+  { id: 'red',              label: 'Red Refractor /5' },
+  { id: 'auto_base',        label: 'Base Auto' },
+  { id: 'auto_refractor',   label: 'Refractor Auto /499' },
+  { id: 'auto_gold',        label: 'Gold Auto /50' },
+  { id: 'superfractor',     label: 'Superfractor 1/1' },
 ];
 
 /* ============================================================================
@@ -336,109 +284,16 @@ const _LEGACY_INLINE_SEED = [
    ENGINE
    ============================================================================ */
 
-// Magnitude-aware trait distance (weighted, normalized to 0..1). Unlike cosine,
-// this respects how HIGH the traits are — a mediocre profile is genuinely far
-// from an elite one, not merely "the same shape pointed the same way."
-function traitDistance(a, b, weights) {
-  let sumSq = 0, sumW = 0;
-  for (const key of Object.keys(weights)) {
-    const w = weights[key];
-    const d = ((a[key] ?? 0) - (b[key] ?? 0)) / 100;
-    sumSq += w * d * d;
-    sumW += w;
-  }
-  return sumW ? Math.sqrt(sumSq / sumW) : 1;
-}
-
-// Softness of the outcome-weighted blend (smaller = more nearest-neighbor-like).
-const ARCHETYPE_TAU = 0.11;
-
-// Outcome band for an archetype's realized card value — drives the dossier copy.
-function archetypeBand(ov = 70) {
-  if (ov >= 85) return { label: 'Generational', cls: 'text-emerald-400 border-emerald-500/40', stance: 'bull' };
-  if (ov >= 70) return { label: 'Star-caliber', cls: 'text-emerald-400 border-emerald-500/40', stance: 'bull' };
-  if (ov >= 55) return { label: 'Solid regular', cls: 'text-amber-400 border-amber-500/40', stance: 'neutral' };
-  if (ov >= 40) return { label: 'Capped / cautionary', cls: 'text-orange-400 border-orange-500/40', stance: 'bear' };
-  return { label: 'Bust risk', cls: 'text-red-400 border-red-500/40', stance: 'bear' };
-}
-
-function findBestComp(cardTraits, sport) {
-  const playbook = PLAYBOOKS[sport] || [];
-  const weights = TRAIT_WEIGHTS[sport] || TRAIT_WEIGHTS.baseball;
-  if (!playbook.length) return { archetype: null, similarity: 0, signal: 70, drivers: [] };
-  // Distance to every archetype; closeness weight decays with distance.
-  const scored = playbook
-    .map((a) => {
-      const dist = traitDistance(cardTraits, a.traits, weights);
-      return { archetype: a, dist, weight: Math.exp(-dist / ARCHETYPE_TAU) };
-    })
-    .sort((x, y) => x.dist - y.dist);
-  const best = scored[0];
-  // Player signal: blend the archetypes' realized outcomeValues by closeness, so
-  // resembling a bust pulls the score down and resembling a legend lifts it.
-  const totW = scored.reduce((s, x) => s + x.weight, 0);
-  const signal = totW > 0
-    ? scored.reduce((s, x) => s + x.weight * (x.archetype.outcomeValue ?? 70), 0) / totW
-    : 70;
-  // Top 3 traits doing the most lifting in the closest match (shared strength).
-  const drivers = Object.keys(weights)
-    .map((k) => ({
-      key: k,
-      weight: weights[k],
-      cardVal: cardTraits[k] ?? 0,
-      archVal: best.archetype.traits[k] ?? 0,
-      contribution: weights[k] * Math.min(cardTraits[k] ?? 0, best.archetype.traits[k] ?? 0),
-    }))
-    .sort((a, b) => b.contribution - a.contribution)
-    .slice(0, 3);
-  return {
-    archetype: best.archetype,
-    similarity: Math.max(0, 1 - best.dist), // 0..1 closeness to the nearest comp
-    signal: Math.round(signal),             // outcome-weighted player value 0..100
-    drivers,
-  };
-}
-
-function computePlayerSignal(card) {
-  return findBestComp(card.traits, card.sport).signal;
-}
-
-function computeScarcityMultiplier(card) {
-  const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
-  const ladderRarity = variant ? variant.rarity : 1.0;
-
-  if (!card.pop) {
-    return { multiplier: ladderRarity, hasRealData: false, popVelocity: null };
-  }
-  // 30-day PSA-10 pop growth (percent), derived from our own snapshots.
-  // Null until there's a snapshot ~30 days old → no velocity adjustment yet.
-  // Slower growth = scarcer (less new supply); fast growth compresses the premium.
-  const velPct = card.pop.change30dPsa10;
-  let velocityAdj = 0;
-  if (velPct != null) {
-    if (velPct < 5) velocityAdj = 0.15;
-    else if (velPct < 10) velocityAdj = 0.05;
-    else if (velPct < 20) velocityAdj = -0.05;
-    else velocityAdj = -0.15;
-  }
-  return {
-    multiplier: ladderRarity + velocityAdj,
-    hasRealData: true,
-    popVelocity: velPct, // percent, or null while still accumulating snapshots
-    gemRate: card.pop.gemRate,
-    total: card.pop.total,
-  };
-}
-
+// Scoring runs SERVER-SIDE now (scoring.js). Each card from /api/cards carries a
+// `score` block; these thin readers keep the existing components working without
+// shipping the archetypes, weights, or formulas to the browser.
 function computeCombinedScore(card) {
-  const playerSignal = computePlayerSignal(card);
-  const scarcity = computeScarcityMultiplier(card);
-  // Combined score: player signal scaled by scarcity, normalized to 0-100.
-  // True max multiplier = 3.00 ladder (Superfractor 1/1) + 0.15 velocity = 3.15,
-  // so a perfect-signal card with verified scarcity can reach ~100.
-  const raw = playerSignal * scarcity.multiplier;
-  const normalized = Math.min(100, Math.round(raw / 3.15));
-  return { playerSignal, scarcity, combinedScore: normalized };
+  const s = card.score || {};
+  return {
+    combinedScore: s.combined ?? 0,
+    playerSignal: s.playerSignal ?? 0,
+    scarcity: s.scarcity || { multiplier: 1, hasRealData: false, popVelocity: null },
+  };
 }
 
 // Sell-ladder order, lowest grade → highest. Shared by the flip math and the
@@ -448,86 +303,15 @@ const GRADE_ROWS = [
   ['PSA 10', 'psa10'], ['BGS 10', 'bgs10'],
 ];
 
-/* ----------------------------------------------------------------------------
-   GRADING FLIP — buy the raw card (at a discount), grade it (PSA), sell graded.
-   All costs are real: PSA grading fee + eBay final value fee + per-order fee.
-   We show the NET return for each graded comp we have (PSA 7-10, BGS 10) so the
-   user can judge. flipScore blends engine conviction with the (PSA-10-referenced)
-   net arbitrage. Returns null unless the card has a raw price and a graded comp.
-   ---------------------------------------------------------------------------- */
-function computeFlip(card, combinedScore) {
-  const raw = card.price?.raw;
-  if (raw == null) return null;
-  const targetBuy = raw * (1 - CONFIG.BUY_DISCOUNT);
-  const costBasis = targetBuy + CONFIG.GRADING_COST;
-
-  // Net profit selling at a given graded price, after eBay fees.
-  const netFor = (sell) => {
-    if (sell == null) return null;
-    const proceeds = sell * (1 - CONFIG.EBAY_FEE_RATE) - CONFIG.EBAY_PER_ORDER_FEE;
-    const profit = proceeds - costBasis;
-    return { sell: Math.round(sell), net: Math.round(profit), pct: Math.round((profit / costBasis) * 100) };
-  };
-
-  const grades = {
-    g7: netFor(card.price?.g7),
-    g8: netFor(card.price?.g8),
-    g9: netFor(card.price?.g9),
-    g95: netFor(card.price?.g95),
-    psa10: netFor(card.price?.psa10),
-    bgs10: netFor(card.price?.bgs10),
-  };
-  // Headline/ranking uses PSA 10 (deepest market) when present, else BGS 10.
-  const primary = grades.psa10 || grades.bgs10;
-  if (!primary) return null;
-  const primaryLabel = grades.psa10 ? 'PSA 10' : 'BGS 10';
-
-  // Best net-return grade — the optimal sell target to highlight.
-  let bestLabel = null, bestNet = -Infinity, bestPct = null;
-  for (const [label, key] of GRADE_ROWS) {
-    const g = grades[key];
-    if (g && g.net > bestNet) { bestNet = g.net; bestLabel = label; bestPct = g.pct; }
-  }
-
-  const arbScore = Math.max(0, Math.min(100, primary.pct / 3)); // +300% → 100
-  const flipScore = Math.round(0.5 * combinedScore + 0.5 * arbScore);
-  return {
-    targetBuy: Math.round(targetBuy),
-    gradingCost: CONFIG.GRADING_COST,
-    costBasis: Math.round(costBasis),
-    grades,
-    primary,
-    primaryLabel,
-    bestLabel,
-    bestPct,
-    returnPct: primary.pct,
-    flipScore,
-  };
+// The grading-flip block is computed server-side (scoring.js) and attached to
+// each entitled card as `score.flip`; here we just read it.
+function computeFlip(card) {
+  return card.score?.flip ?? null;
 }
 
-/* ----------------------------------------------------------------------------
-   RECOMMENDATION VERDICT — when the framework does NOT recommend a card. Grounded
-   in the flip math on the PSA 10 comp (the liquid, realistically achievable
-   grade): if grading to a PSA 10 returns below CONFIG.MIN_FLIP_RETURN after real
-   grading + selling costs, it's not worth it — regardless of what a lucky,
-   low-probability BGS 10 might fetch. Returns { recommended, reason } or null
-   when there's no price yet to judge.
-   ---------------------------------------------------------------------------- */
-function computeRecommendation(flip) {
-  if (!flip) return null; // price pending — can't judge the flip yet
-  const pct = flip.returnPct; // PSA 10 (primary) net return — the honest basis
-  if (pct == null) return null;
-  if (pct < CONFIG.MIN_FLIP_RETURN) {
-    return {
-      recommended: false,
-      pct,
-      reason:
-        pct < 0
-          ? `Our framework does not recommend this card right now — at today's prices, grading it and selling at a PSA 10 nets a loss (${pct}%) after grading and selling fees.`
-          : `Our framework does not recommend this card right now — the PSA 10 grade-flip returns only ${pct}% after grading and selling fees, too thin for the risk and the wait.`,
-    };
-  }
-  return { recommended: true, pct };
+// The recommendation verdict is computed server-side; read it off the card.
+function computeRecommendation(card) {
+  return card?.score?.recommendation ?? null;
 }
 
 const NOT_REC_STYLE = 'bg-red-500/10 text-red-400 border-red-500/40';
@@ -554,32 +338,10 @@ const HORIZON_STYLE = {
     desc: 'Durable profile, a still-rising ceiling, and room left in the price. Value compounds as the player’s career plays out — buy and sit on it.',
   },
 };
+// Hold horizon (key + blurb) is computed server-side; merge in the display style.
 function computeHorizon(card) {
-  const t = card.traits || {};
-  let score = 50;
-  score += ((t.longevity ?? 70) - 70) * 0.6; // durability compounds over years
-  score += ((t.peak ?? 80) - 80) * 0.4;       // unrealized ceiling worth holding for
-  const raw = card.price?.raw;
-  if (raw != null) {
-    if (raw < 120) score += 12;        // cheap → room to appreciate
-    else if (raw < 300) score += 4;
-    else if (raw < 600) score -= 6;
-    else score -= 14;                  // expensive → much already priced in
-  }
-  const vel = card.pop?.change30dPsa10;
-  if (vel != null) {
-    if (vel >= 20) score -= 12;        // pop flooding → realize value sooner
-    else if (vel < 5) score += 6;      // scarce/stable → safe to hold
-  }
-  score = Math.max(0, Math.min(100, Math.round(score)));
-  const key = score >= 62 ? 'long' : score <= 45 ? 'short' : 'mid';
-  const blurb =
-    key === 'long'
-      ? 'Durable profile with a still-rising ceiling and room left in the price — value compounds over the player’s career. Hold for the long game.'
-      : key === 'short'
-      ? 'Value is largely realizable near-term (price already elevated, or durability risk) — capture it and move on rather than holding for years.'
-      : 'Balanced profile — real upside but not a multi-year compounder. Hold through the next catalyst, then reassess.';
-  return { key, score, blurb, ...HORIZON_STYLE[key] };
+  const h = card.score?.horizon || { key: 'mid', blurb: '' };
+  return { ...h, ...(HORIZON_STYLE[h.key] || HORIZON_STYLE.mid) };
 }
 
 /* ============================================================================
@@ -834,7 +596,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
       {visible.map(({ card, combinedScore, flip, horizon }) => {
         const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
         const isWatched = watchlist.includes(card.id);
-        const rec = computeRecommendation(flip);
+        const rec = computeRecommendation(card);
         const notRec = rec && !rec.recommended;
         const pctColor = !flip ? '' :
           flip.returnPct >= 60 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' :
@@ -910,15 +672,15 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
 
 function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio, isPro, onUpgrade }) {
   const { playerSignal, scarcity, combinedScore } = computeCombinedScore(card);
-  const comp = findBestComp(card.traits, card.sport);
-  const band = comp.archetype ? archetypeBand(comp.archetype.outcomeValue) : null;
+  const comp = card.score?.comp || null;
+  const band = comp?.band || null;
   const variant = SCARCITY_LADDER.find((v) => v.id === card.variantId);
   const ebayUrl = buildEbayLink(
     `${card.player} ${card.set} ${card.cardNumber || ''}`.replace(/·/g, ' ').replace(/\s+/g, ' ').trim()
   );
   const flip = computeFlip(card, combinedScore);
   const horizon = computeHorizon(card);
-  const rec = computeRecommendation(flip);
+  const rec = computeRecommendation(card);
   const notRec = rec && !rec.recommended;
 
   return (
@@ -1004,9 +766,8 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
           <p className="text-xs text-zinc-400 leading-relaxed mt-0.5">
             We match {card.player}’s seven-trait profile against a roster of historical archetypes —
             not just legends, but hyped names who stalled or busted — and weight each match by how
-            that player’s cards actually turned out. Closest here is {comp.archetype.name}{' '}
-            ({Math.round(comp.similarity * 100)}% similar, a {band ? band.label.toLowerCase() : '—'} outcome).
-            So resembling a bust drags this down; resembling a star lifts it.
+            that player’s cards actually turned out.{comp ? ` Closest here is ${comp.name} (${Math.round(comp.similarity * 100)}% similar, a ${band ? band.label.toLowerCase() : '—'} outcome).` : ''}
+            {' '}So resembling a bust drags this down; resembling a star lifts it.
           </p>
         </div>
         <div>
@@ -1099,24 +860,25 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
       )}
 
       {/* Archetype match */}
+      {comp && (
       <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
         <div className="text-[11px] uppercase tracking-widest text-orange-400/80 mb-2">
           Archetype match · {Math.round(comp.similarity * 100)}% similar
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="text-base font-semibold">{comp.archetype.name}</div>
+          <div className="text-base font-semibold">{comp.name}</div>
           {band && (
             <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${band.cls}`}>{band.label}</span>
           )}
         </div>
-        <div className="text-xs text-zinc-400 mb-3">{comp.archetype.era}</div>
+        <div className="text-xs text-zinc-400 mb-3">{comp.era}</div>
         <div className="text-xs text-zinc-300 leading-relaxed">
           The closest historical profile this card maps to — not a prediction, a framework.{' '}
           {band?.stance === 'bull'
-            ? `If ${card.player}'s career resembles ${comp.archetype.name}'s on the traits below, the card has a credible path to premium status.`
+            ? `If ${card.player}'s career resembles ${comp.name}'s on the traits below, the card has a credible path to premium status.`
             : band?.stance === 'neutral'
-            ? `${comp.archetype.name} settled in as a solid regular — real value, but card returns historically stayed capped here. Temper the upside.`
-            : `This is a cautionary comp: players matching ${comp.archetype.name}'s profile have historically stalled or busted. Treat the upside with real skepticism.`}
+            ? `${comp.name} settled in as a solid regular — real value, but card returns historically stayed capped here. Temper the upside.`
+            : `This is a cautionary comp: players matching ${comp.name}'s profile have historically stalled or busted. Treat the upside with real skepticism.`}
         </div>
         <div className="mt-3 space-y-2">
           {comp.drivers.map((d) => (
@@ -1135,6 +897,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
           ))}
         </div>
       </section>
+      )}
 
       {/* Scarcity context */}
       <section className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
@@ -1228,8 +991,14 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
 }
 
 function LearnTab({ sport }) {
-  const playbook = PLAYBOOKS[sport] || [];
-  const weights = TRAIT_WEIGHTS[sport] || TRAIT_WEIGHTS.baseball;
+  // Display-only archetype roster comes from the server (no model in the bundle).
+  const [archetypes, setArchetypes] = useState([]);
+  useEffect(() => {
+    fetch(`/api/archetypes?sport=${encodeURIComponent(sport)}`)
+      .then((r) => r.json())
+      .then((d) => setArchetypes(Array.isArray(d.archetypes) ? d.archetypes : []))
+      .catch(() => setArchetypes([]));
+  }, [sport]);
   return (
     <div className="px-4 py-4 pb-8 space-y-6">
       <section>
@@ -1260,12 +1029,9 @@ function LearnTab({ sport }) {
           The seven traits
         </div>
         <div className="space-y-2">
-          {Object.entries(weights).map(([key, w]) => (
+          {SUB_TRAITS.map((key) => (
             <div key={key} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
-              <div className="flex items-baseline justify-between">
-                <div className="font-medium capitalize">{key}</div>
-                <div className="text-xs text-zinc-500">Weight {(w * 100).toFixed(0)}%</div>
-              </div>
+              <div className="font-medium capitalize">{key}</div>
               <div className="text-xs text-zinc-400 mt-1 leading-relaxed">
                 {TRAIT_BLURBS[key]}
               </div>
@@ -1285,18 +1051,15 @@ function LearnTab({ sport }) {
           score.
         </p>
         <div className="space-y-1.5">
-          {playbook.map((arch) => {
-            const b = archetypeBand(arch.outcomeValue);
-            return (
-              <div key={arch.id} className="flex items-center justify-between gap-2 bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2">
-                <div className="min-w-0">
-                  <div className="font-medium text-sm truncate">{arch.name}</div>
-                  <div className="text-[11px] text-zinc-500">{arch.era}</div>
-                </div>
-                <span className={`px-2 py-0.5 rounded border text-[9px] uppercase tracking-wider whitespace-nowrap ${b.cls}`}>{b.label}</span>
+          {archetypes.map((arch, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2">
+              <div className="min-w-0">
+                <div className="font-medium text-sm truncate">{arch.name}</div>
+                <div className="text-[11px] text-zinc-500">{arch.era}</div>
               </div>
-            );
-          })}
+              <span className={`px-2 py-0.5 rounded border text-[9px] uppercase tracking-wider whitespace-nowrap ${arch.band?.cls || ''}`}>{arch.band?.label}</span>
+            </div>
+          ))}
         </div>
       </section>
     </div>
@@ -1331,7 +1094,7 @@ function computeHoldSignal(card, entry) {
   const { combinedScore } = computeCombinedScore(card);
   const horizon = computeHorizon(card);
   const flip = computeFlip(card, combinedScore);
-  const rec = computeRecommendation(flip);
+  const rec = computeRecommendation(card);
   if (condition === 'raw' && flip && rec?.recommended) {
     return {
       action: 'Hold & grade',
@@ -2808,7 +2571,7 @@ export default function CardProspector() {
 
   // Card data comes from the API (MySQL). Until it loads — or if the API is
   // unreachable — we fall back to the bundled seed so the app still renders.
-  const [allCards, setAllCards] = useState(FEATURED_CARDS_SEED);
+  const [allCards, setAllCards] = useState([]); // filled from /api/cards (scored server-side)
 
   // Auth + per-user watchlist (server-backed).
   const [user, setUser] = useState(null);

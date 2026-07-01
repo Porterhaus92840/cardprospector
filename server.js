@@ -25,6 +25,7 @@ import {
   getUsers, setUserBanned, setUserTierById, getAdminStats, createCard, updateCardTraits, updateCardDetails, expireBetas,
 } from './db.js';
 import { pullCards, pullSports } from './catalog.js';
+import { scoreCard, archetypeList } from './scoring.js';
 import { getProvider } from './pricing.js';
 import { searchCardImage } from './ebay.js';
 import {
@@ -120,19 +121,34 @@ function isEntitled(user) {
   return Boolean(user) && (user.tier === 'pro' || user.tier === 'elite' || user.tier === 'beta');
 }
 
-// All cards (player data + pop). Pricing (and therefore the flip targets the
-// client computes from it) is a paid feature — strip `price` for non-subscribers
-// so the paywall is enforced server-side, not just hidden in the UI.
+// All cards with a server-computed `score` block. The scoring engine (archetypes,
+// weights, formulas, raw traits) NEVER leaves the server — the client renders from
+// `score` only. Pricing is a paid feature (flip targets ride on it), so `price` +
+// `flip` are stripped for non-subscribers; raw `traits` go only to the owner/admin.
 app.get('/api/cards', async (req, res) => {
   try {
-    const entitled = isEntitled(await getSessionUser(req));
-    let cards = await getCards();
-    if (!entitled) cards = cards.map((c) => ({ ...c, price: null }));
-    res.json({ cards, entitled });
+    const user = await getSessionUser(req);
+    const entitled = isEntitled(user);
+    const isAdmin = (user && (user.email || '').toLowerCase() === OWNER_EMAIL) || checkAdmin(req);
+    const cards = await getCards();
+    const out = cards.map((c) => {
+      const score = scoreCard(c, { withFlip: entitled });
+      const card = { ...c, score };
+      if (!isAdmin) delete card.traits;   // model input — never ship to users
+      if (!entitled) card.price = null;   // paywall (targets need price)
+      return card;
+    });
+    res.json({ cards: out, entitled });
   } catch (err) {
     console.error('[api] GET /api/cards failed:', err.message);
     res.status(500).json({ error: 'Failed to load cards' });
   }
+});
+
+// Display-only archetype roster for the Learn tab (names/eras/band, no model).
+app.get('/api/archetypes', (req, res) => {
+  const sport = (req.query.sport || 'baseball').toString();
+  res.json({ archetypes: archetypeList(sport) });
 });
 
 // Server-side admin gate. ADMIN_TOKEN lives only in the server .env, never
