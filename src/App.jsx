@@ -1553,18 +1553,34 @@ function AdminPopEntry({ cards, adminToken, onSaved }) {
   const totalNum = parseInt(total, 10) || 0;
   const totalMismatch = total !== '' && gradedSum > totalNum;
 
+  const hasPop = (c) => Boolean(c?.pop);
+  const sortedCards = [...cards].sort((a, b) => (hasPop(a) === hasPop(b) ? 0 : hasPop(a) ? 1 : -1));
+  const doneCount = cards.filter(hasPop).length;
+  const selCard = cards.find((c) => c.id === selectedCardId);
+
   return (
     <div className="space-y-5">
         <div className="space-y-3">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-zinc-400">
+              <span className="text-emerald-400 font-medium">{doneCount}</span> of {cards.length} pop reports entered
+            </span>
+            <span className="text-zinc-600">✓ entered · ○ pending</span>
+          </div>
           <select
             value={selectedCardId}
             onChange={(e) => setSelectedCardId(e.target.value)}
             className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
           >
-            {cards.map((c) => (
-              <option key={c.id} value={c.id}>{c.player} · {c.set}</option>
+            {sortedCards.map((c) => (
+              <option key={c.id} value={c.id}>{hasPop(c) ? '✓' : '○'} {c.player} · {c.set}</option>
             ))}
           </select>
+          <div className="text-[11px]">
+            {hasPop(selCard)
+              ? <span className="text-emerald-400/80">✓ Pop last entered {selCard.pop.asOf || '—'}</span>
+              : <span className="text-amber-400/90">○ No pop report entered yet.</span>}
+          </div>
           <input type="number" inputMode="numeric" placeholder="Total PSA population (from pop report)" value={total} onChange={(e)=>setTotal(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
           <div className="grid grid-cols-2 gap-2">
             <input type="number" inputMode="numeric" placeholder="PSA 10" value={psa10} onChange={(e)=>setPsa10(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm" />
