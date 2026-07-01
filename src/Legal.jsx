@@ -212,7 +212,7 @@ function Refunds() {
 
 export function LegalPage({ doc }) {
   return (
-    <div className="min-h-screen w-full bg-zinc-950 text-zinc-100" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div className="h-[100dvh] w-full overflow-y-auto bg-zinc-950 text-zinc-100" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       <div className="max-w-2xl mx-auto px-4 py-8 pb-16">
         <a href="/" className="text-sm text-orange-400 hover:text-orange-300">← Back to CardProspector</a>
         <div className="mt-6">
