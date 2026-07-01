@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import {
   initDb, getCards, recordPop, setTagPrice, recordPrice, setCardImage,
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
+  getPortfolio, setPortfolioEntry, removePortfolioEntry,
   setStripeCustomer, setSubscription, setUserTierByEmail,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
   getUsers, setUserBanned, setUserTierById, getAdminStats, createCard, updateCardTraits, expireBetas,
@@ -277,6 +278,35 @@ app.post('/api/watchlist', requireAuth(async (req, res, user) => {
   } catch (err) {
     console.error('[api] watchlist update failed:', err.message);
     res.status(500).json({ error: 'Could not update watchlist' });
+  }
+}));
+
+// Per-account portfolio (holdings sync across devices).
+app.get('/api/portfolio', requireAuth(async (req, res, user) => {
+  res.json({ portfolio: await getPortfolio(user.id) });
+}));
+
+app.post('/api/portfolio', requireAuth(async (req, res, user) => {
+  const { cardId, condition, purchasePrice } = req.body || {};
+  if (!cardId || typeof cardId !== 'string') return res.status(400).json({ error: 'Missing cardId' });
+  try {
+    await setPortfolioEntry(user.id, cardId, condition, purchasePrice);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[api] portfolio update failed:', err.message);
+    res.status(500).json({ error: 'Could not update portfolio' });
+  }
+}));
+
+app.post('/api/portfolio/remove', requireAuth(async (req, res, user) => {
+  const { cardId } = req.body || {};
+  if (!cardId || typeof cardId !== 'string') return res.status(400).json({ error: 'Missing cardId' });
+  try {
+    await removePortfolioEntry(user.id, cardId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[api] portfolio remove failed:', err.message);
+    res.status(500).json({ error: 'Could not update portfolio' });
   }
 }));
 

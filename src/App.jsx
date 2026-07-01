@@ -1359,7 +1359,7 @@ function PortfolioAddModal({ card, existing, onClose, onConfirm }) {
   );
 }
 
-function PortfolioTab({ portfolio, allCards, onRemove, onEdit }) {
+function PortfolioTab({ portfolio, allCards, onRemove, onEdit, signedIn }) {
   const [certNumber, setCertNumber] = useState('');
   const [certResult, setCertResult] = useState(null);
   const [verifying, setVerifying] = useState(false);
@@ -1394,7 +1394,9 @@ function PortfolioTab({ portfolio, allCards, onRemove, onEdit }) {
         <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Holdings</div>
         {owned.length === 0 ? (
           <div className="text-sm text-zinc-400 bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
-            No cards yet. Add prospects from the Scout tab to start tracking.
+            {signedIn
+              ? 'No cards yet. Open a card and tap “+ Portfolio” to start tracking — your holdings sync across all your devices.'
+              : 'Sign in to build your portfolio. Holdings are saved to your account and sync across every device.'}
           </div>
         ) : (
           <>
@@ -2653,6 +2655,8 @@ export default function CardProspector() {
   const [user, setUser] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [watchlist, setWatchlist] = useState([]);
+  const [portfolio, setPortfolio] = useState([]); // server-backed, per account
+  const portfolioMigrated = useRef(false);
   const [billingEnabled, setBillingEnabled] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
@@ -2677,6 +2681,32 @@ export default function CardProspector() {
     } catch { setWatchlist([]); }
   }, []);
 
+  const refetchPortfolio = useCallback(async () => {
+    try {
+      const res = await fetch('/api/portfolio');
+      if (!res.ok) { setPortfolio([]); return; }
+      const data = await res.json();
+      setPortfolio(Array.isArray(data.portfolio) ? data.portfolio : []);
+    } catch { setPortfolio([]); }
+  }, []);
+
+  // One-time: migrate any legacy localStorage holdings to the server, then clear
+  // them locally. Runs once per session when a user is present.
+  const migrateLocalPortfolio = useCallback(async () => {
+    if (portfolioMigrated.current) return;
+    portfolioMigrated.current = true;
+    const local = (loadState().portfolio) || [];
+    if (!local.length) return;
+    for (const e of local) {
+      await fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardId: e.cardId, condition: e.condition || 'raw', purchasePrice: e.purchasePrice || 0 }),
+      }).catch(() => {});
+    }
+    setState((s) => ({ ...s, portfolio: [] })); // clear the local copy after migrating
+  }, []);
+
   const refetchUser = useCallback(async () => {
     try {
       const res = await fetch('/api/auth/me');
@@ -2691,6 +2721,10 @@ export default function CardProspector() {
   useEffect(() => { refetchCards(); }, [refetchCards, user]);
   useEffect(() => { refetchUser(); }, [refetchUser]);
   useEffect(() => { if (user) refetchWatchlist(); else setWatchlist([]); }, [user, refetchWatchlist]);
+  useEffect(() => {
+    if (!user) { setPortfolio([]); return; }
+    (async () => { await migrateLocalPortfolio(); await refetchPortfolio(); })();
+  }, [user, migrateLocalPortfolio, refetchPortfolio]);
   useEffect(() => {
     fetch('/api/billing/config').then((r) => r.json()).then((d) => setBillingEnabled(Boolean(d.enabled))).catch(() => {});
   }, []);
@@ -2745,21 +2779,34 @@ export default function CardProspector() {
   }, [user, isPro]);
 
   // Opening the portfolio-add modal (collects condition + price before saving).
+  // Portfolio is per-account now, so adding requires sign-in (like the watchlist).
   const [portfolioModalId, setPortfolioModalId] = useState(null);
-  const openAddToPortfolio = useCallback((id) => setPortfolioModalId(id), []);
+  const openAddToPortfolio = useCallback((id) => {
+    if (!user) { setAuthOpen(true); return; }
+    setPortfolioModalId(id);
+  }, [user]);
   const confirmAddToPortfolio = useCallback((id, details) => {
-    setState((s) => {
-      const exists = s.portfolio.some((p) => p.cardId === id);
-      const portfolio = exists
-        ? s.portfolio.map((p) => (p.cardId === id ? { ...p, ...details } : p))
-        : [...s.portfolio, { cardId: id, ...details, addedAt: Date.now() }];
-      return { ...s, portfolio };
+    setPortfolio((list) => {
+      const exists = list.some((p) => p.cardId === id);
+      return exists
+        ? list.map((p) => (p.cardId === id ? { ...p, ...details } : p))
+        : [...list, { cardId: id, ...details }];
     });
+    fetch('/api/portfolio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cardId: id, condition: details.condition, purchasePrice: details.purchasePrice }),
+    }).catch(() => {});
     setPortfolioModalId(null);
   }, []);
 
   const removeFromPortfolio = useCallback((id) => {
-    setState((s) => ({ ...s, portfolio: s.portfolio.filter((p) => p.cardId !== id) }));
+    setPortfolio((list) => list.filter((p) => p.cardId !== id));
+    fetch('/api/portfolio/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cardId: id }),
+    }).catch(() => {});
   }, []);
 
   // Unlock the admin panel by verifying the passphrase against the server
@@ -2853,10 +2900,11 @@ export default function CardProspector() {
           <LearnTab sport={sport} />
         ) : (
           <PortfolioTab
-            portfolio={state.portfolio}
+            portfolio={portfolio}
             allCards={allCards}
             onRemove={removeFromPortfolio}
             onEdit={openAddToPortfolio}
+            signedIn={Boolean(user)}
           />
         )}
 
@@ -2884,7 +2932,7 @@ export default function CardProspector() {
       {portfolioModalId && allCards.find((c) => c.id === portfolioModalId) && (
         <PortfolioAddModal
           card={allCards.find((c) => c.id === portfolioModalId)}
-          existing={state.portfolio.find((p) => p.cardId === portfolioModalId)}
+          existing={portfolio.find((p) => p.cardId === portfolioModalId)}
           onClose={() => setPortfolioModalId(null)}
           onConfirm={confirmAddToPortfolio}
         />

@@ -152,6 +152,21 @@ const CREATE_WATCHLIST_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 
+// Per-user portfolio holdings (replaces the old localStorage portfolio, so it
+// syncs across devices). `condition_id` is 'raw' | 'g7'..'psa10' | 'bgs10'.
+const CREATE_PORTFOLIO_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS portfolios (
+    user_id        BIGINT        NOT NULL,
+    card_id        VARCHAR(64)   NOT NULL,
+    condition_id   VARCHAR(16)   NOT NULL DEFAULT 'raw',
+    purchase_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+    created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, card_id),
+    CONSTRAINT fk_port_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_port_card FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
 /** Map a DB row to the shape the frontend already expects. */
 function rowToCard(row) {
   const traits = typeof row.traits === 'string' ? JSON.parse(row.traits) : row.traits;
@@ -192,6 +207,7 @@ export async function initDb() {
   await pool.query(CREATE_POP_TABLE_SQL);
   await pool.query(CREATE_USERS_TABLE_SQL);
   await pool.query(CREATE_WATCHLIST_TABLE_SQL);
+  await pool.query(CREATE_PORTFOLIO_TABLE_SQL);
   await pool.query(CREATE_SUBMISSIONS_TABLE_SQL);
 
   // Migrations for columns added after the initial release (Control Console).
@@ -493,6 +509,29 @@ export async function setWatch(userId, cardId, watched) {
     await pool.query('DELETE FROM watchlists WHERE user_id = ? AND card_id = ?', [userId, cardId]);
   }
   return watched;
+}
+
+/** A user's portfolio holdings (condition + purchase price per card). */
+export async function getPortfolio(userId) {
+  const [rows] = await pool.query(
+    'SELECT card_id, condition_id, purchase_price FROM portfolios WHERE user_id = ? ORDER BY created_at DESC',
+    [userId]
+  );
+  return rows.map((r) => ({ cardId: r.card_id, condition: r.condition_id, purchasePrice: Number(r.purchase_price) }));
+}
+
+/** Add or update a portfolio holding (one row per user+card). */
+export async function setPortfolioEntry(userId, cardId, condition, purchasePrice) {
+  await pool.query(
+    `INSERT INTO portfolios (user_id, card_id, condition_id, purchase_price) VALUES (?,?,?,?)
+     ON DUPLICATE KEY UPDATE condition_id = VALUES(condition_id), purchase_price = VALUES(purchase_price)`,
+    [userId, cardId, condition || 'raw', Number(purchasePrice) || 0]
+  );
+}
+
+/** Remove a holding from a user's portfolio. */
+export async function removePortfolioEntry(userId, cardId) {
+  await pool.query('DELETE FROM portfolios WHERE user_id = ? AND card_id = ?', [userId, cardId]);
 }
 
 /** Link a user to their Stripe customer. */
