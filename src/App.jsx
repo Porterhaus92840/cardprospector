@@ -2539,7 +2539,9 @@ function SubmissionModal({ onClose }) {
   useEffect(() => { loadMine(); }, [loadMine]);
 
   const submit = async () => {
-    if (!f.player.trim()) { setMsg({ ok: false, text: 'Player name is required.' }); return; }
+    const required = { Player: f.player, Year: f.card_year, 'Card #': f.card_number, Team: f.team, Position: f.position };
+    const missing = Object.entries(required).filter(([, v]) => !String(v).trim()).map(([k]) => k);
+    if (missing.length) { setMsg({ ok: false, text: `Please fill in the required field${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}.` }); return; }
     const yr = parseInt(f.card_year, 10);
     if (!yr || yr < CONFIG.MIN_CARD_YEAR) {
       setMsg({ ok: false, text: `CardProspector covers modern cards (${CONFIG.MIN_CARD_YEAR}–present). Older/vintage cards aren't supported — the grading-flip and growth model is built for recent prospects.` });
@@ -2575,15 +2577,16 @@ function SubmissionModal({ onClose }) {
             <input className={`${INPUT_CLS} col-span-2`} placeholder="Set" value={f.card_set} onChange={(e) => upd('card_set', e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input className={INPUT_CLS} placeholder="Card # (e.g. #CDA-WL)" value={f.card_number} onChange={(e) => upd('card_number', e.target.value)} />
+            <input className={INPUT_CLS} placeholder="Card # * (e.g. #CDA-WL)" value={f.card_number} onChange={(e) => upd('card_number', e.target.value)} />
             <select className={INPUT_CLS} value={f.variant_id} onChange={(e) => upd('variant_id', e.target.value)}>
               {SCARCITY_LADDER.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
             </select>
-            <input className={INPUT_CLS} placeholder="Team" value={f.team} onChange={(e) => upd('team', e.target.value)} />
-            <input className={INPUT_CLS} placeholder="Position" value={f.position} onChange={(e) => upd('position', e.target.value)} />
+            <input className={INPUT_CLS} placeholder="Team *" value={f.team} onChange={(e) => upd('team', e.target.value)} />
+            <input className={INPUT_CLS} placeholder="Position *" value={f.position} onChange={(e) => upd('position', e.target.value)} />
           </div>
           <input className={INPUT_CLS} placeholder="SportsCardsPro product ID (optional)" value={f.sportscardspro_id} onChange={(e) => upd('sportscardspro_id', e.target.value)} />
           <textarea className={INPUT_CLS} rows={2} placeholder="Anything else? (optional)" value={f.note} onChange={(e) => upd('note', e.target.value)} />
+          <div className="text-[10px] text-zinc-500">Fields marked <span className="text-zinc-300">*</span> are required.</div>
           <button onClick={submit} disabled={busy} className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-zinc-950 font-semibold rounded-lg py-2.5">
             {busy ? '…' : 'Submit card'}
           </button>

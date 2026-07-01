@@ -303,7 +303,9 @@ const MIN_CARD_YEAR = 2010; // engine scope — modern prospects/rookies only
 app.post('/api/submissions', requireAuth(async (req, res, user) => {
   if (!isEntitled(user)) return res.status(403).json({ error: 'Adding cards is a Pro feature.' });
   const f = req.body || {};
-  if (!f.player || typeof f.player !== 'string') return res.status(400).json({ error: 'Player name is required.' });
+  const required = { Player: f.player, Year: f.card_year, 'Card #': f.card_number, Team: f.team, Position: f.position };
+  const missing = Object.entries(required).filter(([, v]) => !String(v ?? '').trim()).map(([k]) => k);
+  if (missing.length) return res.status(400).json({ error: `Missing required field${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}.` });
   const yr = parseInt(f.card_year, 10);
   if (!yr || yr < MIN_CARD_YEAR) {
     return res.status(400).json({ error: `CardProspector covers modern cards (${MIN_CARD_YEAR}–present). Older/vintage cards aren't supported.` });
