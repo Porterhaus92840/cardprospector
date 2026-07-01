@@ -29,7 +29,7 @@ export async function sendEmail({ to, subject, html, text }) {
 // Branded wrapper so all our emails share a look.
 function shell(bodyHtml) {
   const header = EMAIL_LOGO_URL
-    ? `<img src="${EMAIL_LOGO_URL}" alt="CardProspector" width="180" style="display:block;margin-bottom:16px;max-width:180px;height:auto;border:0" />`
+    ? `<div style="background:#ffffff;border-radius:8px;padding:10px 14px;display:inline-block;margin-bottom:16px"><img src="${EMAIL_LOGO_URL}" alt="CardProspector" width="200" style="display:block;max-width:200px;height:auto;border:0" /></div>`
     : `<div style="font-size:20px;font-weight:700;margin-bottom:16px">Card<span style="color:#f97316">Prospector</span></div>`;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;background:#0c0a09;color:#f5f5f4;padding:24px">
     <div style="max-width:480px;margin:0 auto;background:#18181b;border:1px solid #27272a;border-radius:12px;padding:24px">
