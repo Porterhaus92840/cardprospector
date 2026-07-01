@@ -6,6 +6,9 @@
  */
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'CardProspector <noreply@cardprospector.app>';
+// Set EMAIL_LOGO_URL to a hosted PNG (~360px wide) to show the logo in email
+// headers; falls back to the text wordmark until it's set.
+const EMAIL_LOGO_URL = process.env.EMAIL_LOGO_URL || '';
 
 export const emailEnabled = () => Boolean(RESEND_API_KEY);
 
@@ -25,9 +28,12 @@ export async function sendEmail({ to, subject, html, text }) {
 
 // Branded wrapper so all our emails share a look.
 function shell(bodyHtml) {
+  const header = EMAIL_LOGO_URL
+    ? `<img src="${EMAIL_LOGO_URL}" alt="CardProspector" width="180" style="display:block;margin-bottom:16px;max-width:180px;height:auto;border:0" />`
+    : `<div style="font-size:20px;font-weight:700;margin-bottom:16px">Card<span style="color:#f97316">Prospector</span></div>`;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;background:#0c0a09;color:#f5f5f4;padding:24px">
     <div style="max-width:480px;margin:0 auto;background:#18181b;border:1px solid #27272a;border-radius:12px;padding:24px">
-      <div style="font-size:20px;font-weight:700;margin-bottom:16px">Card<span style="color:#f97316">Prospector</span></div>
+      ${header}
       ${bodyHtml}
       <div style="margin-top:24px;padding-top:16px;border-top:1px solid #27272a;font-size:11px;color:#71717a">
         For educational and informational purposes only — not financial or investment advice.
@@ -37,15 +43,16 @@ function shell(bodyHtml) {
 }
 
 export async function sendWatchlistAlertEmail(to, items, appUrl, unsubscribeUrl) {
+  const toneColor = (t) => ({ good: '#34d399', warn: '#fbbf24', info: '#a1a1aa' }[t] || '#d4d4d8');
   const rows = items.map((it) => `
     <div style="padding:12px 0;border-bottom:1px solid #27272a">
       <div style="font-size:14px;font-weight:600;color:#f5f5f4">${it.player}</div>
       <div style="font-size:12px;color:#a1a1aa">${it.set || ''}</div>
-      <div style="font-size:13px;color:${it.tone === 'good' ? '#34d399' : '#fbbf24'};margin-top:4px">${it.headline}</div>
+      <div style="font-size:13px;color:${toneColor(it.tone)};margin-top:4px">${it.headline}</div>
     </div>`).join('');
   const html = shell(`
     <p style="font-size:14px;line-height:1.6;color:#d4d4d8">
-      ${items.length === 1 ? 'A card' : `${items.length} cards`} on your watchlist just had an update:
+      ${items.length === 1 ? "Here's an update on a card you track:" : `Here are ${items.length} updates on cards you track:`}
     </p>
     <div style="margin:8px 0 16px">${rows}</div>
     <p style="margin:16px 0"><a href="${appUrl}" style="display:inline-block;background:#f97316;color:#0c0a09;font-weight:600;text-decoration:none;padding:10px 18px;border-radius:8px">Open CardProspector</a></p>

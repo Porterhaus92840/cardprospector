@@ -220,8 +220,13 @@ export async function initDb() {
   await ensureColumn('users', 'reset_token_hash', 'VARCHAR(64) NULL');
   await ensureColumn('users', 'reset_expires_at', 'DATETIME NULL');
   await ensureColumn('users', 'alerts_enabled', 'TINYINT(1) NOT NULL DEFAULT 1');
-  await ensureColumn('cards', 'alert_last_raw', 'DECIMAL(12,2) NULL');
+  await ensureColumn('cards', 'alert_last_raw', 'DECIMAL(12,2) NULL'); // legacy (unused)
   await ensureColumn('cards', 'alert_last_recommended', 'TINYINT(1) NULL');
+  await ensureColumn('cards', 'alert_high', 'DECIMAL(12,2) NULL');       // running peak (cumulative drop)
+  await ensureColumn('cards', 'alert_low', 'DECIMAL(12,2) NULL');        // running trough (cumulative rise)
+  await ensureColumn('cards', 'alert_last_horizon', 'VARCHAR(8) NULL');
+  await ensureColumn('portfolios', 'alert_up_done', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('portfolios', 'alert_down_done', 'TINYINT(1) NOT NULL DEFAULT 0');
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -429,21 +434,25 @@ export async function setAlertsEnabled(userId, enabled) {
   await pool.query('UPDATE users SET alerts_enabled = ? WHERE id = ?', [enabled ? 1 : 0, userId]);
 }
 
-/** Per-card alert baseline (last-evaluated raw price + recommended flag). */
+/** Per-card alert state: running price peak/trough + last recommended + horizon. */
 export async function getCardBaselines() {
-  const [rows] = await pool.query('SELECT id, alert_last_raw, alert_last_recommended FROM cards');
+  const [rows] = await pool.query('SELECT id, alert_high, alert_low, alert_last_recommended, alert_last_horizon FROM cards');
   const map = {};
   for (const r of rows) {
     map[r.id] = {
-      raw: r.alert_last_raw != null ? Number(r.alert_last_raw) : null,
+      high: r.alert_high != null ? Number(r.alert_high) : null,
+      low: r.alert_low != null ? Number(r.alert_low) : null,
       rec: r.alert_last_recommended == null ? null : Number(r.alert_last_recommended),
+      horizon: r.alert_last_horizon || null,
     };
   }
   return map;
 }
-export async function setCardBaseline(cardId, raw, recommended) {
-  await pool.query('UPDATE cards SET alert_last_raw = ?, alert_last_recommended = ? WHERE id = ?',
-    [raw == null ? null : raw, recommended == null ? null : (recommended ? 1 : 0), cardId]);
+export async function setCardBaseline(cardId, { high, low, rec, horizon }) {
+  await pool.query(
+    'UPDATE cards SET alert_high = ?, alert_low = ?, alert_last_recommended = ?, alert_last_horizon = ? WHERE id = ?',
+    [high == null ? null : high, low == null ? null : low, rec == null ? null : (rec ? 1 : 0), horizon || null, cardId]
+  );
 }
 
 /** Watchlist pairs eligible for alert emails (Elite/beta tier + alerts on). */
@@ -454,6 +463,24 @@ export async function getEligibleWatches() {
       WHERE u.alerts_enabled = 1 AND u.banned = 0 AND u.tier IN ('elite', 'beta')`
   );
   return rows.map((r) => ({ cardId: r.card_id, userId: r.user_id, email: r.email }));
+}
+
+/** Portfolio holdings eligible for P&L alert emails. */
+export async function getEligiblePortfolios() {
+  const [rows] = await pool.query(
+    `SELECT p.card_id, p.user_id, p.condition_id, p.purchase_price, p.alert_up_done, p.alert_down_done, u.email
+       FROM portfolios p JOIN users u ON u.id = p.user_id
+      WHERE u.alerts_enabled = 1 AND u.banned = 0 AND u.tier IN ('elite', 'beta')`
+  );
+  return rows.map((r) => ({
+    cardId: r.card_id, userId: r.user_id, email: r.email,
+    condition: r.condition_id || 'raw', purchasePrice: Number(r.purchase_price) || 0,
+    upDone: Number(r.alert_up_done) === 1, downDone: Number(r.alert_down_done) === 1,
+  }));
+}
+export async function setPortfolioAlertFlags(userId, cardId, upDone, downDone) {
+  await pool.query('UPDATE portfolios SET alert_up_done = ?, alert_down_done = ? WHERE user_id = ? AND card_id = ?',
+    [upDone ? 1 : 0, downDone ? 1 : 0, userId, cardId]);
 }
 
 /** Set a new password hash and clear any reset token. */

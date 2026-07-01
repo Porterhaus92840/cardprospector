@@ -1198,8 +1198,8 @@ function PortfolioTab({ portfolio, allCards, onRemove, onEdit, signedIn, user, o
       {alertsEligible && (
         <div className="flex items-center justify-between gap-3 bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
           <div className="min-w-0">
-            <div className="text-sm font-medium">🔔 Watchlist alerts</div>
-            <div className="text-[11px] text-zinc-500 leading-relaxed">Email me when a watchlist card drops in price or turns recommended.</div>
+            <div className="text-sm font-medium">🔔 Alerts</div>
+            <div className="text-[11px] text-zinc-500 leading-relaxed">Email me when a watchlist card moves (price, recommendation, hold horizon) or a holding hits a profit/loss target.</div>
           </div>
           <button
             onClick={() => onToggleAlerts(!user.alertsEnabled)}
