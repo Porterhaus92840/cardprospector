@@ -33,9 +33,9 @@ function Terms() {
         Service, you agree to these Terms. If you don't agree, don't use the Service.
       </P>
 
-      <H2>1. Entertainment only — not financial or investment advice</H2>
+      <H2>1. Educational and informational only — not financial or investment advice</H2>
       <P>
-        CardProspector is provided for informational and entertainment purposes only. Nothing on the
+        CardProspector is provided for educational and informational purposes only. Nothing on the
         Service is financial, investment, tax, or legal advice, a recommendation, or an offer to buy
         or sell anything. Our scores, archetype matches, price estimates, "buy/sell targets," hold
         horizons, and projected returns are pattern-based hypotheses, not predictions or guarantees.

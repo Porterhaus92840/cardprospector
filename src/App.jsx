@@ -854,7 +854,7 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
           <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
             Net = sale price − {Math.round(CONFIG.EBAY_FEE_RATE * 100)}% eBay fee − ${CONFIG.EBAY_PER_ORDER_FEE.toFixed(2)} −
             cost basis. Low grades (PSA 7/8) can sell below raw — often not worth grading. Assumes the card
-            earns that grade. Not financial or investment advice — for entertainment only.
+            earns that grade. For educational and informational purposes only — not financial or investment advice.
           </p>
         </section>
       )}
@@ -2144,9 +2144,9 @@ function SiteFooter() {
       <div className="text-[11px] leading-relaxed text-zinc-500 text-center space-y-2">
         <p>
           <span className="text-zinc-400 font-medium">Not financial or investment advice.</span>{' '}
-          CardProspector is intended for entertainment purposes only. It surfaces pattern-based
-          hypotheses, not predictions. Card values are volatile and you can lose money. Always do
-          your own research before buying.
+          CardProspector is for educational and informational purposes only. It surfaces pattern-based
+          hypotheses, not predictions or recommendations. Card values are volatile and you can lose
+          money. Always do your own research before buying.
         </p>
         <p>
           <a href={feedbackHref} className="text-orange-400/80 hover:text-orange-400 underline">
@@ -2257,7 +2257,7 @@ function AuthModal({ onClose, onAuthed }) {
           </button>
         </div>
         <p className="text-[10px] text-zinc-500 text-center mt-3 leading-relaxed">
-          For entertainment only — not financial or investment advice. By continuing you agree to our{' '}
+          For educational and informational purposes only — not financial or investment advice. By continuing you agree to our{' '}
           <a href="/terms" className="text-zinc-400 underline">Terms</a> and{' '}
           <a href="/privacy" className="text-zinc-400 underline">Privacy Policy</a>.
         </p>
