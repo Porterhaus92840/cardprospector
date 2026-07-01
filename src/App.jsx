@@ -588,7 +588,7 @@ function ScoutTab({ cards, onSelectCard, watchlist, onToggleWatch, isPro, onSubm
         </div>
       )}
       {total > 0 && (
-        <div ref={topRef} className="flex items-center justify-between gap-2 text-xs scroll-mt-2">
+        <div ref={topRef} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs scroll-mt-2">
           <span className="text-zinc-500">Showing {start + 1}–{Math.min(start + perPage, total)} of {total}</span>
           {pager()}
         </div>
@@ -2824,7 +2824,7 @@ export default function CardProspector() {
 
       <Header sport={sport} onSportChange={setSport} />
 
-      <main ref={mainRef} className="flex-1 overflow-y-auto min-h-0">
+      <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
         {selectedCard ? (
           <DossierView
             card={selectedCard}
