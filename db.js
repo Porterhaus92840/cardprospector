@@ -219,6 +219,9 @@ export async function initDb() {
   await ensureColumn('cards', 'traits_updated_at', 'DATETIME NULL');
   await ensureColumn('users', 'reset_token_hash', 'VARCHAR(64) NULL');
   await ensureColumn('users', 'reset_expires_at', 'DATETIME NULL');
+  await ensureColumn('users', 'alerts_enabled', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await ensureColumn('cards', 'alert_last_raw', 'DECIMAL(12,2) NULL');
+  await ensureColumn('cards', 'alert_last_recommended', 'TINYINT(1) NULL');
 
   const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM cards');
   if (n > 0) {
@@ -419,6 +422,38 @@ export async function getUserByResetToken(tokenHash) {
     [tokenHash]
   );
   return row || null;
+}
+
+/** Toggle a user's watchlist-alert emails. */
+export async function setAlertsEnabled(userId, enabled) {
+  await pool.query('UPDATE users SET alerts_enabled = ? WHERE id = ?', [enabled ? 1 : 0, userId]);
+}
+
+/** Per-card alert baseline (last-evaluated raw price + recommended flag). */
+export async function getCardBaselines() {
+  const [rows] = await pool.query('SELECT id, alert_last_raw, alert_last_recommended FROM cards');
+  const map = {};
+  for (const r of rows) {
+    map[r.id] = {
+      raw: r.alert_last_raw != null ? Number(r.alert_last_raw) : null,
+      rec: r.alert_last_recommended == null ? null : Number(r.alert_last_recommended),
+    };
+  }
+  return map;
+}
+export async function setCardBaseline(cardId, raw, recommended) {
+  await pool.query('UPDATE cards SET alert_last_raw = ?, alert_last_recommended = ? WHERE id = ?',
+    [raw == null ? null : raw, recommended == null ? null : (recommended ? 1 : 0), cardId]);
+}
+
+/** Watchlist pairs eligible for alert emails (Elite/beta tier + alerts on). */
+export async function getEligibleWatches() {
+  const [rows] = await pool.query(
+    `SELECT w.card_id, w.user_id, u.email
+       FROM watchlists w JOIN users u ON u.id = w.user_id
+      WHERE u.alerts_enabled = 1 AND u.banned = 0 AND u.tier IN ('elite', 'beta')`
+  );
+  return rows.map((r) => ({ cardId: r.card_id, userId: r.user_id, email: r.email }));
 }
 
 /** Set a new password hash and clear any reset token. */

@@ -1162,7 +1162,7 @@ function PortfolioAddModal({ card, existing, onClose, onConfirm }) {
   );
 }
 
-function PortfolioTab({ portfolio, allCards, onRemove, onEdit, signedIn }) {
+function PortfolioTab({ portfolio, allCards, onRemove, onEdit, signedIn, user, onToggleAlerts }) {
   const [certNumber, setCertNumber] = useState('');
   const [certResult, setCertResult] = useState(null);
   const [verifying, setVerifying] = useState(false);
@@ -1191,8 +1191,24 @@ function PortfolioTab({ portfolio, allCards, onRemove, onEdit, signedIn }) {
   const totalPnL = owned.reduce((s, o) => s + (o.pnl || 0), 0);
   const anyUnpriced = owned.some((o) => o.pnl == null);
 
+  const alertsEligible = user && (user.tier === 'elite' || user.tier === 'beta');
+
   return (
     <div className="px-4 py-4 pb-8 space-y-5">
+      {alertsEligible && (
+        <div className="flex items-center justify-between gap-3 bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">🔔 Watchlist alerts</div>
+            <div className="text-[11px] text-zinc-500 leading-relaxed">Email me when a watchlist card drops in price or turns recommended.</div>
+          </div>
+          <button
+            onClick={() => onToggleAlerts(!user.alertsEnabled)}
+            className={`shrink-0 px-3 py-1 rounded-full border text-xs font-medium ${user.alertsEnabled ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}
+          >
+            {user.alertsEnabled ? 'On' : 'Off'}
+          </button>
+        </div>
+      )}
       <section>
         <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Holdings</div>
         {owned.length === 0 ? (
@@ -2824,6 +2840,15 @@ export default function CardProspector() {
     }).catch(() => {});
   }, []);
 
+  const toggleAlerts = useCallback((enabled) => {
+    setUser((u) => (u ? { ...u, alertsEnabled: enabled } : u)); // optimistic
+    fetch('/api/alerts/prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }).catch(() => {});
+  }, []);
+
   // Unlock the admin panel by verifying the passphrase against the server
   // (ADMIN_TOKEN in the server .env). The verified token is persisted to
   // localStorage so the owner stays signed in as admin across refreshes.
@@ -2946,6 +2971,8 @@ export default function CardProspector() {
             onRemove={removeFromPortfolio}
             onEdit={openAddToPortfolio}
             signedIn={Boolean(user)}
+            user={user}
+            onToggleAlerts={toggleAlerts}
           />
         )}
 

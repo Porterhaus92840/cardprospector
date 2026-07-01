@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 import {
   initDb, getCards, recordPop, recordPrice, setCardImage,
   createUser, getUserByEmail, getUserById, getWatchlist, setWatch,
-  setPasswordResetToken, getUserByResetToken, updateUserPassword,
+  setPasswordResetToken, getUserByResetToken, updateUserPassword, setAlertsEnabled,
   getPortfolio, setPortfolioEntry, removePortfolioEntry,
   setStripeCustomer, setSubscription, setUserTierByEmail,
   createSubmission, getMySubmissions, getPendingSubmissions, publishSubmission, rejectSubmission,
@@ -283,6 +283,34 @@ app.post('/api/auth/forgot', async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+// One-click unsubscribe from alert emails (HMAC of the user id — not a session).
+app.get('/api/alerts/unsubscribe', async (req, res) => {
+  const { u, t } = req.query || {};
+  const expected = process.env.JWT_SECRET
+    ? crypto.createHmac('sha256', process.env.JWT_SECRET).update(`unsub:${u}`).digest('hex').slice(0, 32)
+    : null;
+  const page = (msg) => `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#0c0a09;color:#f5f5f4;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="max-width:400px;text-align:center;padding:24px"><div style="font-size:22px;font-weight:700;margin-bottom:12px">Card<span style="color:#f97316">Prospector</span></div><p style="color:#d4d4d8;line-height:1.6">${msg}</p><a href="/" style="color:#f97316">Back to CardProspector</a></div></body></html>`;
+  if (!u || !t || !expected || t !== expected) return res.status(400).send(page('That unsubscribe link is invalid.'));
+  try {
+    await setAlertsEnabled(Number(u), false);
+    res.send(page('You’ve been unsubscribed from watchlist alert emails. You can turn them back on anytime from your Portfolio tab.'));
+  } catch {
+    res.status(500).send(page('Something went wrong — please try again.'));
+  }
+});
+
+// Toggle alert emails from inside the app.
+app.post('/api/alerts/prefs', requireAuth(async (req, res, user) => {
+  const enabled = Boolean((req.body || {}).enabled);
+  try {
+    await setAlertsEnabled(user.id, enabled);
+    res.json({ ok: true, alertsEnabled: enabled });
+  } catch (err) {
+    console.error('[api] alerts prefs failed:', err.message);
+    res.status(500).json({ error: 'Could not update alert setting' });
+  }
+}));
 
 // Complete a password reset with the emailed token.
 app.post('/api/auth/reset', async (req, res) => {

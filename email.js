@@ -36,6 +36,25 @@ function shell(bodyHtml) {
   </div>`;
 }
 
+export async function sendWatchlistAlertEmail(to, items, appUrl, unsubscribeUrl) {
+  const rows = items.map((it) => `
+    <div style="padding:12px 0;border-bottom:1px solid #27272a">
+      <div style="font-size:14px;font-weight:600;color:#f5f5f4">${it.player}</div>
+      <div style="font-size:12px;color:#a1a1aa">${it.set || ''}</div>
+      <div style="font-size:13px;color:${it.tone === 'good' ? '#34d399' : '#fbbf24'};margin-top:4px">${it.headline}</div>
+    </div>`).join('');
+  const html = shell(`
+    <p style="font-size:14px;line-height:1.6;color:#d4d4d8">
+      ${items.length === 1 ? 'A card' : `${items.length} cards`} on your watchlist just had an update:
+    </p>
+    <div style="margin:8px 0 16px">${rows}</div>
+    <p style="margin:16px 0"><a href="${appUrl}" style="display:inline-block;background:#f97316;color:#0c0a09;font-weight:600;text-decoration:none;padding:10px 18px;border-radius:8px">Open CardProspector</a></p>
+    <p style="font-size:11px;color:#71717a">You get these because you have watchlist alerts on. <a href="${unsubscribeUrl}" style="color:#a1a1aa">Unsubscribe</a>.</p>
+  `);
+  const text = `Watchlist update:\n${items.map((it) => `- ${it.player}: ${it.headline}`).join('\n')}\n\nOpen: ${appUrl}\nUnsubscribe: ${unsubscribeUrl}`;
+  return sendEmail({ to, subject: `Watchlist update — ${items[0].player}${items.length > 1 ? ` +${items.length - 1} more` : ''}`, html, text });
+}
+
 export async function sendPasswordResetEmail(to, resetUrl) {
   const html = shell(`
     <p style="font-size:14px;line-height:1.6;color:#d4d4d8">

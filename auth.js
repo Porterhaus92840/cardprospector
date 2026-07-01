@@ -62,5 +62,6 @@ export function publicUser(row) {
     tier: row.tier,
     subscriptionStatus: row.subscription_status || null,
     trialEnd: row.trial_end || null,
+    alertsEnabled: row.alerts_enabled == null ? true : Boolean(row.alerts_enabled),
   };
 }
