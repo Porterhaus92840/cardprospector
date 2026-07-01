@@ -2157,7 +2157,7 @@ const ADMIN_NAV = [
   { id: 'pricing', icon: '＄', label: 'Pop / price' },
 ];
 
-function AdminConsole({ cards, adminToken, onSaved, onClose }) {
+function AdminConsole({ cards, adminToken, onSaved, onClose, onLock }) {
   const [screen, setScreen] = useState('dashboard');
   return (
     <div className="fixed inset-0 bg-zinc-950 z-50 overflow-y-auto">
@@ -2167,7 +2167,12 @@ function AdminConsole({ cards, adminToken, onSaved, onClose }) {
             <span className="text-orange-500 font-mono text-sm">▌</span>
             <h2 className="text-lg font-bold tracking-tight">Control Console</h2>
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200 text-sm">Close ✕</button>
+          <div className="flex items-center gap-3">
+            {onLock && (
+              <button onClick={onLock} className="text-zinc-500 hover:text-red-400 text-xs" title="Sign out of admin (clears the saved passphrase)">🔒 Lock</button>
+            )}
+            <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200 text-sm">Close ✕</button>
+          </div>
         </div>
         <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-4 font-mono">
           CardProspector · operator terminal
@@ -2252,7 +2257,7 @@ function SiteFooter() {
   );
 }
 
-function BottomNav({ tab, onTabChange, onOpenAdmin }) {
+function BottomNav({ tab, onTabChange, onOpenAdmin, showAdmin }) {
   const tabs = [
     { id: 'scout',     label: 'Scout' },
     { id: 'learn',     label: 'Learn' },
@@ -2270,13 +2275,15 @@ function BottomNav({ tab, onTabChange, onOpenAdmin }) {
             {t.label}
           </button>
         ))}
-        <button
-          onClick={onOpenAdmin}
-          className="px-4 py-3 text-zinc-600 hover:text-zinc-300"
-          aria-label="Admin"
-        >
-          ⚙
-        </button>
+        {showAdmin && (
+          <button
+            onClick={onOpenAdmin}
+            className="px-4 py-3 text-zinc-600 hover:text-zinc-300"
+            aria-label="Admin"
+          >
+            ⚙
+          </button>
+        )}
       </div>
     </nav>
   );
@@ -2645,7 +2652,9 @@ export default function CardProspector() {
   const [tab, setTab] = useState('scout');
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [adminToken, setAdminToken] = useState('');
+  const [adminToken, setAdminToken] = useState(() => {
+    try { return localStorage.getItem('cp_admin_token') || ''; } catch { return ''; }
+  });
 
   // Card data comes from the API (MySQL). Until it loads — or if the API is
   // unreachable — we fall back to the bundled seed so the app still renders.
@@ -2753,6 +2762,7 @@ export default function CardProspector() {
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [selectedCardId, tab]);
 
   const isPro = Boolean(user) && (user.tier === 'pro' || user.tier === 'elite' || user.tier === 'beta');
+  const isOwner = Boolean(user) && (user.email || '').toLowerCase() === CONFIG.OWNER_EMAIL.toLowerCase();
   const promptUpgrade = useCallback(() => {
     if (!user) setAuthOpen(true);
     else setUpgradeOpen(true);
@@ -2810,8 +2820,19 @@ export default function CardProspector() {
   }, []);
 
   // Unlock the admin panel by verifying the passphrase against the server
-  // (ADMIN_TOKEN in the server .env). The token is kept in memory for writes.
+  // (ADMIN_TOKEN in the server .env). The verified token is persisted to
+  // localStorage so the owner stays signed in as admin across refreshes.
+  const persistAdminToken = useCallback((token) => {
+    setAdminToken(token);
+    try {
+      if (token) localStorage.setItem('cp_admin_token', token);
+      else localStorage.removeItem('cp_admin_token');
+    } catch { /* ignore */ }
+  }, []);
+
   const openAdmin = async () => {
+    // Already signed in as admin (persisted token) — open straight to the console.
+    if (adminToken) { setAdminOpen(true); return; }
     const entered = window.prompt('Admin passphrase');
     if (entered == null) return;
     try {
@@ -2821,7 +2842,7 @@ export default function CardProspector() {
       });
       const data = await res.json().catch(() => ({ ok: false }));
       if (data.ok) {
-        setAdminToken(entered);
+        persistAdminToken(entered);
         setAdminOpen(true);
       } else {
         window.alert('Incorrect passphrase.');
@@ -2831,11 +2852,26 @@ export default function CardProspector() {
     }
   };
 
+  const lockAdmin = useCallback(() => {
+    persistAdminToken('');
+    setAdminOpen(false);
+  }, [persistAdminToken]);
+
+  // Self-heal a persisted admin token: verify it once on load, clear if stale.
+  useEffect(() => {
+    if (!adminToken) return;
+    fetch('/api/admin/verify', { method: 'POST', headers: { 'x-admin-token': adminToken } })
+      .then((r) => r.json()).catch(() => ({ ok: false }))
+      .then((d) => { if (!d.ok) persistAdminToken(''); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onAuthed = (u) => { setUser(u); setAuthOpen(false); };
   const signOut = async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
     setUser(null);
     setWatchlist([]);
+    lockAdmin(); // admin access is tied to being signed in as the owner
   };
   const manageBilling = async () => {
     try {
@@ -2915,6 +2951,7 @@ export default function CardProspector() {
         tab={tab}
         onTabChange={(t) => { setTab(t); setSelectedCardId(null); }}
         onOpenAdmin={openAdmin}
+        showAdmin={isOwner}
       />
 
       {adminOpen && (
@@ -2923,6 +2960,7 @@ export default function CardProspector() {
           adminToken={adminToken}
           onSaved={refetchCards}
           onClose={() => setAdminOpen(false)}
+          onLock={lockAdmin}
         />
       )}
 
