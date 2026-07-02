@@ -28,6 +28,7 @@ import {
 import { pullCards, pullSports } from './catalog.js';
 import { scoreCard, archetypeList } from './scoring.js';
 import { sendPasswordResetEmail } from './email.js';
+import { getPlayerContext } from './mlb.js';
 import { getProvider } from './pricing.js';
 import { searchCardImage } from './ebay.js';
 import {
@@ -627,13 +628,19 @@ app.post('/api/admin/suggest-traits', async (req, res) => {
   }
   const { player, card_set, card_number, team, position, variant } = req.body || {};
   if (!player) return res.status(400).json({ error: 'player required' });
+  // Ground the model in live MLB/MiLB data (falls back silently if not found).
+  let mlb = { found: false };
+  try { mlb = await getPlayerContext(player); } catch { /* ignore — fall back to model knowledge */ }
+  const effTeam = (mlb.found && mlb.team) || team;
+  const effPos = (mlb.found && mlb.position) || position;
   const ctx = [
     `Player: ${player}`,
     card_set ? `Set: ${card_set}` : '',
     card_number ? `Card #: ${card_number}` : '',
-    team ? `Team: ${team}` : '',
-    position ? `Position: ${position}` : '',
+    effTeam ? `Team: ${effTeam}` : '',
+    effPos ? `Position: ${effPos}` : '',
     variant ? `Parallel/variant: ${variant}` : '',
+    mlb.found && mlb.statsText ? `LIVE DATA (authoritative) — ${mlb.statsText}` : '',
   ].filter(Boolean).join('\n');
   const traitProps = Object.fromEntries(TRAIT_KEYS.map((k) => [k, { type: 'integer', minimum: 0, maximum: 100 }]));
   const rationaleProps = Object.fromEntries(TRAIT_KEYS.map((k) => [k, { type: 'string' }]));
@@ -665,7 +672,7 @@ app.post('/api/admin/suggest-traits', async (req, res) => {
             required: ['team', 'position', 'traits', 'rationales', 'warningSigns', 'confidence'],
           },
         }],
-        system: `You are a sports-card analyst for CardProspector, which flags modern baseball prospects/rookies (year >= ${MIN_CARD_YEAR}) to buy raw, grade, and flip. For the given player/card: identify the player's current MLB team and primary position (empty string only if you truly don't know — don't guess wildly), and estimate 7 long-term card-value traits as integers 0-100, grounded in real, current player knowledge. Be honest and conservative: if the player is obscure or you are unsure, score moderately, set confidence "low", and say so in the rationale. Each rationale is ONE short sentence. warningSigns is a 1-2 sentence plain-English note of risks that would cap the grading-flip upside. ${TRAIT_SCALE}`,
+        system: `You are a sports-card analyst for CardProspector, which flags modern baseball prospects/rookies (year >= ${MIN_CARD_YEAR}) to buy raw, grade, and flip. For the given player/card: identify the player's current MLB team and primary position (empty string only if you truly don't know — don't guess wildly), and estimate 7 long-term card-value traits as integers 0-100. If a "LIVE DATA" line is provided, treat it as authoritative and current — base your team, position, and stat-driven traits on it (and you may set confidence higher). Otherwise use your own knowledge and be conservative. If the player is obscure or you are unsure, score moderately, set confidence "low", and say so in the rationale. Each rationale is ONE short sentence. warningSigns is a 1-2 sentence plain-English note of risks that would cap the grading-flip upside. ${TRAIT_SCALE}`,
         messages: [{ role: 'user', content: `Estimate traits for this card:\n${ctx}` }],
       }),
     });
@@ -677,7 +684,7 @@ app.post('/api/admin/suggest-traits', async (req, res) => {
     const data = await resp.json();
     const toolUse = (data.content || []).find((b) => b.type === 'tool_use');
     if (!toolUse?.input) return res.status(502).json({ error: 'AI returned no suggestion' });
-    res.json({ ok: true, ...toolUse.input });
+    res.json({ ok: true, ...toolUse.input, statsFound: Boolean(mlb.found) });
   } catch (err) {
     console.error('[ai] suggest-traits error:', err.message);
     res.status(500).json({ error: 'Could not reach the AI service.' });

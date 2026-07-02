@@ -212,6 +212,13 @@ export async function initDb() {
   await pool.query(CREATE_WATCHLIST_TABLE_SQL);
   await pool.query(CREATE_PORTFOLIO_TABLE_SQL);
   await pool.query(CREATE_SUBMISSIONS_TABLE_SQL);
+  await pool.query(`CREATE TABLE IF NOT EXISTS data_cache (
+    source     VARCHAR(32)  NOT NULL,
+    cache_key  VARCHAR(191) NOT NULL,
+    payload    JSON         NOT NULL,
+    fetched_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (source, cache_key)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
 
   // Migrations for columns added after the initial release (Control Console).
   await ensureColumn('users', 'tier_expires_at', 'DATETIME NULL');
@@ -400,6 +407,24 @@ export async function setCardImage(cardId, imageUrl) {
 /* ============================================================================
    USERS + WATCHLIST
    ============================================================================ */
+
+/** Generic external-data cache (source + key). Returns payload if fresher than
+    maxAgeMs, else null. Keeps us off free APIs' rate limits. */
+export async function getCache(source, key, maxAgeMs) {
+  const [[row]] = await pool.query('SELECT payload, fetched_at FROM data_cache WHERE source = ? AND cache_key = ?', [source, key]);
+  if (!row) return null;
+  if (maxAgeMs) {
+    const age = Date.now() - new Date(row.fetched_at).getTime();
+    if (!(age >= 0) || age > maxAgeMs) return null;
+  }
+  return typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+}
+export async function setCache(source, key, payload) {
+  await pool.query(
+    'INSERT INTO data_cache (source, cache_key, payload) VALUES (?,?,?) ON DUPLICATE KEY UPDATE payload = VALUES(payload), fetched_at = CURRENT_TIMESTAMP',
+    [source, key, JSON.stringify(payload)]
+  );
+}
 
 /** Create a user. Throws on duplicate email (caught by the route as 409). */
 export async function createUser(email, passwordHash) {
