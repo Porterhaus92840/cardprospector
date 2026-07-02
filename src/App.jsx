@@ -1843,6 +1843,17 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
   const [msg, setMsg] = useState(null);
   const [details, setDetails] = useState({ team: '', position: '', card_set: '', card_number: '', variant_id: '' });
   const updDetail = (k, v) => setDetails((s) => ({ ...s, [k]: v }));
+  // AI-assist state
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState(null);
+  const [rationales, setRationales] = useState({});
+  const [confidence, setConfidence] = useState('');
+
+  useEffect(() => {
+    fetch('/api/admin/ai-config', { headers: { 'x-admin-token': adminToken } })
+      .then((r) => r.json()).then((d) => setAiEnabled(Boolean(d.enabled))).catch(() => {});
+  }, [adminToken]);
 
   // Prefill from the selected card's current traits + details + warning signs.
   useEffect(() => {
@@ -1858,7 +1869,41 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
       variant_id: c?.variantId || (SCARCITY_LADDER[0]?.id || ''),
     });
     setMsg(null);
+    setAiMsg(null);
+    setRationales({});
+    setConfidence('');
   }, [selectedCardId, cards]);
+
+  // Estimate traits + warning signs with AI (Anthropic) for the selected card.
+  const suggest = async () => {
+    if (!selCard) return;
+    setAiBusy(true);
+    setAiMsg(null);
+    try {
+      const r = await fetch('/api/admin/suggest-traits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({
+          player: selCard.player, card_set: details.card_set, card_number: details.card_number,
+          team: details.team, position: details.position, variant: details.variant_id,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setAiMsg({ ok: false, text: d.error || `Failed (${r.status})` });
+      } else {
+        if (d.traits) setTraits((s) => ({ ...s, ...d.traits }));
+        if (d.warningSigns) setBearCase(d.warningSigns);
+        setRationales(d.rationales || {});
+        setConfidence(d.confidence || '');
+        setAiMsg({ ok: true, text: 'AI filled traits + warning signs — review, then Save card.' });
+      }
+    } catch {
+      setAiMsg({ ok: false, text: 'Could not reach the server.' });
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   // One save writes everything: card details (team/position/set/#/variant) AND
   // the traits + warning signs.
@@ -1941,10 +1986,22 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
 
       <div className="flex items-center justify-between pt-1">
         <div className="text-[10px] uppercase tracking-wider text-zinc-500">Traits (0–100)</div>
-        <button type="button" onClick={() => setShowGuide((v) => !v)} className="text-[10px] text-zinc-400 hover:text-zinc-200">
-          ⓘ Scoring guide
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setShowGuide((v) => !v)} className="text-[10px] text-zinc-400 hover:text-zinc-200">ⓘ Scoring guide</button>
+          <button
+            type="button"
+            onClick={suggest}
+            disabled={aiBusy || !aiEnabled || !selCard}
+            title={aiEnabled ? 'Estimate traits + warning signs with AI' : 'Set ANTHROPIC_API_KEY on the server to enable'}
+            className="text-[10px] px-2 py-1 rounded border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+          >
+            {aiBusy ? 'Thinking…' : '✦ Suggest with AI'}
+          </button>
+        </div>
       </div>
+      {!aiEnabled && <div className="text-[10px] text-zinc-500">AI suggest is off — set ANTHROPIC_API_KEY on the server to enable it.</div>}
+      {confidence && <div className="text-[10px] text-zinc-500">AI confidence: <span className="uppercase">{confidence}</span> — review every value before saving.</div>}
+      {aiMsg && <div className={`text-xs rounded p-2 ${aiMsg.ok ? 'bg-sky-500/10 border border-sky-500/30 text-sky-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-300'}`}>{aiMsg.text}</div>}
       {showGuide && (
         <div className="bg-zinc-900/60 border border-zinc-800 rounded p-2 space-y-1.5 text-[10px] text-zinc-400">
           {SUB_TRAITS.map((t) => (
@@ -1957,17 +2014,20 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
       )}
       <div className="space-y-1.5">
         {SUB_TRAITS.map((t) => (
-          <div key={t} className="flex items-center gap-2">
-            <div className="w-28 shrink-0 text-[11px] text-zinc-300" title={TRAIT_RUBRIC[t].anchors.join('  |  ')}>
+          <div key={t} className="flex items-start gap-2">
+            <div className="w-28 shrink-0 text-[11px] text-zinc-300 pt-1.5" title={TRAIT_RUBRIC[t].anchors.join('  |  ')}>
               {TRAIT_RUBRIC[t].label}
             </div>
-            <input
-              type="number"
-              inputMode="numeric"
-              className="w-16 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-1 text-xs text-zinc-100"
-              value={traits[t]}
-              onChange={(e) => setTraits((s) => ({ ...s, [t]: parseInt(e.target.value, 10) || 0 }))}
-            />
+            <div className="flex-1 min-w-0">
+              <input
+                type="number"
+                inputMode="numeric"
+                className="w-16 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-1 text-xs text-zinc-100"
+                value={traits[t]}
+                onChange={(e) => setTraits((s) => ({ ...s, [t]: parseInt(e.target.value, 10) || 0 }))}
+              />
+              {rationales[t] && <div className="text-[10px] text-sky-300/80 mt-0.5 leading-snug">{rationales[t]}</div>}
+            </div>
           </div>
         ))}
       </div>
