@@ -200,14 +200,44 @@ function computeHorizon(card) {
   return { key, score, blurb };
 }
 
+// Real career reference lines, derived from the Lahman Baseball Database
+// (Chadwick Bureau, data through 2021) — provenance/credibility only; they do
+// NOT feed the trait scores (those stay calibrated).
+const ARCHETYPE_CAREER = {
+  mantle: '.298/.421/.557, 536 HR over 18 seasons · HOF',
+  griffey: '.284/.370/.538, 630 HR over 22 seasons · HOF',
+  trout: '.305/.419/.583, 310 HR over 11 seasons',
+  ohtani: '.264/.353/.537, 93 HR over 4 seasons (two-way)',
+  jeter: '.310/.377/.440, 260 HR over 20 seasons · HOF',
+  soto: '.301/.432/.550, 98 HR over 4 seasons',
+  judge: '.276/.386/.554, 158 HR over 6 seasons',
+  acuna: '.281/.376/.549, 105 HR over 4 seasons',
+  harper: '.279/.392/.524, 267 HR over 10 seasons',
+  betts: '.296/.373/.518, 178 HR over 8 seasons',
+  votto: '.302/.416/.520, 331 HR over 15 seasons',
+  wright: '.296/.376/.491, 242 HR over 14 seasons',
+  pence: '.279/.334/.461, 244 HR over 14 seasons',
+  abreu: '.290/.350/.515, 228 HR over 8 seasons',
+  wieters: '.249/.313/.409, 146 HR over 12 seasons',
+  hosmer: '.277/.336/.431, 188 HR over 11 seasons',
+  buxton: '.248/.299/.461, 70 HR over 7 seasons',
+  myers: '.254/.330/.446, 146 HR over 9 seasons',
+  wood: '.186/.225/.289, 18 HR over 5 seasons',
+  delmon: '.283/.316/.421, 109 HR over 10 seasons',
+  montero: '.253/.295/.398, 28 HR over 5 seasons',
+  kershaw: '185-84, 2.49 ERA, 2,670 K over 14 seasons',
+  verlander: '226-129, 3.33 ERA, 3,013 K over 16 seasons',
+  strasburg: '113-61, 3.21 ERA, 1,718 K over 12 seasons',
+};
+
 /**
- * Display-only archetype roster for the Learn tab — names + eras + tier band,
- * NO traits, NO weights, NO outcomeValue numbers (those stay server-side).
+ * Display-only archetype roster for the Learn tab — names + eras + tier band +
+ * a real career line (Lahman). NO traits, NO weights, NO outcomeValue numbers.
  */
 export function archetypeList(sport = 'baseball') {
   return (PLAYBOOKS[sport] || []).map((a) => {
     const b = archetypeBand(a.outcomeValue);
-    return { name: a.name, era: a.era, band: { label: b.label, cls: b.cls } };
+    return { name: a.name, era: a.era, band: { label: b.label, cls: b.cls }, career: ARCHETYPE_CAREER[a.id] || null };
   });
 }
 
@@ -231,6 +261,7 @@ export function scoreCard(card, { withFlip = true } = {}) {
       ? {
           name: comp.archetype.name,
           era: comp.archetype.era,
+          career: ARCHETYPE_CAREER[comp.archetype.id] || null,
           similarity: comp.similarity,
           band: archetypeBand(comp.archetype.outcomeValue),
           drivers: comp.drivers.map((d) => ({ key: d.key, cardVal: d.cardVal, archVal: d.archVal })),

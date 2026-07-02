@@ -11,12 +11,13 @@ and uses **licensed APIs or public datasets — no scrapers** for anything user-
 | **SportsCardsPro** | Prices (raw + full graded ladder), sales-volume; catalog pulls | `api/product`, `api/products` (`SCP_TOKEN`) | nightly snapshot → `price_history` | ✅ live ([pricing.js](../pricing.js), [catalog.js](../catalog.js)) |
 | **eBay Browse (EPN)** | Card images, affiliate buy links | Browse API (`EBAY_*`) | per-card `image_url`, nightly refresh | ✅ live ([ebay.js](../ebay.js)) |
 | **MLB Stats API** | Player team/position + recent MLB/MiLB stats → grounds AI trait suggestions | `statsapi.mlb.com/api/v1` (free) | 24h (`data_cache` source `mlb`) | ✅ live ([mlb.js](../mlb.js)) |
+| **Lahman DB** | Real career lines for the 24 archetypes (reference/provenance on dossier + Learn; scores unchanged) | Chadwick Bureau (cbwinslow mirror), through 2021 | one-time bake → `ARCHETYPE_CAREER` in scoring.js | ✅ live |
 | **Anthropic** | AI trait/warning-signs suggestions (admin, on-click) | `api.anthropic.com` (`ANTHROPIC_API_KEY`) | none (per-click) | ✅ live |
 | **PSA population** | Scarcity multiplier (manual entry) | admin console pop entry | `pop_history` snapshots | ✅ live (manual) |
 
 ## Planned (priority order)
 
-1. **Lahman DB** (one-time import) — clean career totals to retro-populate the 24 archetype library. Public dataset.
+1. ~~Lahman DB — career reference lines for the 24 archetypes~~ ✅ done (reference/provenance; original chadwickbureau repo is gone, used the cbwinslow mirror, data through 2021).
 2. **Baseball Savant / Statcast** — advanced metrics (xwOBA, stuff+, etc.) for active players → sharper trait inputs. Public CSVs.
 3. **GemRate API** — population across all four graders → biggest force-multiplier for the scarcity multiplier (replaces manual PSA entry). Evaluate.
 4. **PSA Cert Verification (free tier)** — user cert lookup (nice-to-have). Already stubbed in `verifyPSACert`.

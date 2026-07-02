@@ -871,7 +871,10 @@ function DossierView({ card, onBack, isWatched, onToggleWatch, onAddToPortfolio,
             <span className={`px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${band.cls}`}>{band.label}</span>
           )}
         </div>
-        <div className="text-xs text-zinc-400 mb-3">{comp.era}</div>
+        <div className="text-xs text-zinc-400">{comp.era}</div>
+        {comp.career && (
+          <div className="text-[11px] text-zinc-500 mb-3" title="Career totals — Lahman Baseball Database">📊 {comp.career}</div>
+        )}
         <div className="text-xs text-zinc-300 leading-relaxed">
           The closest historical profile this card maps to — not a prediction, a framework.{' '}
           {band?.stance === 'bull'
@@ -1056,8 +1059,9 @@ function LearnTab({ sport }) {
               <div className="min-w-0">
                 <div className="font-medium text-sm truncate">{arch.name}</div>
                 <div className="text-[11px] text-zinc-500">{arch.era}</div>
+                {arch.career && <div className="text-[10px] text-zinc-600 truncate">{arch.career}</div>}
               </div>
-              <span className={`px-2 py-0.5 rounded border text-[9px] uppercase tracking-wider whitespace-nowrap ${arch.band?.cls || ''}`}>{arch.band?.label}</span>
+              <span className={`px-2 py-0.5 rounded border text-[9px] uppercase tracking-wider whitespace-nowrap shrink-0 ${arch.band?.cls || ''}`}>{arch.band?.label}</span>
             </div>
           ))}
         </div>
