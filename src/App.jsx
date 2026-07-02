@@ -1684,7 +1684,7 @@ function AdminCreateCard({ adminToken, onCreated }) {
         setConfidence(d.confidence || '');
         setAiWarning(d.warningSigns || '');
         if (d.warningSigns && !f.bear_case.trim()) upd('bear_case', d.warningSigns);
-        setAiMsg({ ok: true, text: `${d.statsFound ? '📊 Grounded in live MLB stats. ' : ''}Suggestions filled in — review and edit before saving.` });
+        setAiMsg({ ok: true, text: `${d.statcastFound ? '📊 Grounded in live MLB + Statcast data. ' : d.statsFound ? '📊 Grounded in live MLB stats. ' : ''}Suggestions filled in — review and edit before saving.` });
       }
     } catch {
       setAiMsg({ ok: false, text: 'Could not reach the server.' });
@@ -1902,7 +1902,7 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
         setDetails((s) => ({ ...s, team: d.team || s.team, position: d.position || s.position }));
         setRationales(d.rationales || {});
         setConfidence(d.confidence || '');
-        setAiMsg({ ok: true, text: `${d.statsFound ? '📊 Grounded in live MLB stats. ' : ''}AI filled team, position, traits + warning signs — review, then Save card.` });
+        setAiMsg({ ok: true, text: `${d.statcastFound ? '📊 Grounded in live MLB + Statcast data. ' : d.statsFound ? '📊 Grounded in live MLB stats. ' : ''}AI filled team, position, traits + warning signs — review, then Save card.` });
       }
     } catch {
       setAiMsg({ ok: false, text: 'Could not reach the server.' });

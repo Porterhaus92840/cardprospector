@@ -59,6 +59,8 @@ export async function getPlayerContext(name) {
 
       result = {
         found: true,
+        mlbId: id,
+        isPitcher,
         team,
         position,
         age: bio.currentAge ?? null,
