@@ -655,15 +655,17 @@ app.post('/api/admin/suggest-traits', async (req, res) => {
           input_schema: {
             type: 'object',
             properties: {
+              team: { type: 'string', description: "The player's current MLB team (e.g. 'Royals'); empty string if genuinely unknown." },
+              position: { type: 'string', description: "The player's primary position (e.g. 'SS', '1B', 'RHP'); empty string if unknown." },
               traits: { type: 'object', properties: traitProps, required: TRAIT_KEYS },
               rationales: { type: 'object', properties: rationaleProps, required: TRAIT_KEYS },
               warningSigns: { type: 'string' },
               confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
             },
-            required: ['traits', 'rationales', 'warningSigns', 'confidence'],
+            required: ['team', 'position', 'traits', 'rationales', 'warningSigns', 'confidence'],
           },
         }],
-        system: `You are a sports-card analyst for CardProspector, which flags modern baseball prospects/rookies (year >= ${MIN_CARD_YEAR}) to buy raw, grade, and flip. Estimate 7 long-term card-value traits for the given player/card as integers 0-100, grounded in real, current player knowledge. Be honest and conservative: if the player is obscure or you are unsure, score moderately, set confidence "low", and say so in the rationale. Each rationale is ONE short sentence. warningSigns is a 1-2 sentence plain-English note of risks that would cap the grading-flip upside. ${TRAIT_SCALE}`,
+        system: `You are a sports-card analyst for CardProspector, which flags modern baseball prospects/rookies (year >= ${MIN_CARD_YEAR}) to buy raw, grade, and flip. For the given player/card: identify the player's current MLB team and primary position (empty string only if you truly don't know — don't guess wildly), and estimate 7 long-term card-value traits as integers 0-100, grounded in real, current player knowledge. Be honest and conservative: if the player is obscure or you are unsure, score moderately, set confidence "low", and say so in the rationale. Each rationale is ONE short sentence. warningSigns is a 1-2 sentence plain-English note of risks that would cap the grading-flip upside. ${TRAIT_SCALE}`,
         messages: [{ role: 'user', content: `Estimate traits for this card:\n${ctx}` }],
       }),
     });

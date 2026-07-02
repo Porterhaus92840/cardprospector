@@ -1675,6 +1675,7 @@ function AdminCreateCard({ adminToken, onCreated }) {
         setAiMsg({ ok: false, text: d.error || `Failed (${r.status})` });
       } else {
         if (d.traits) setTraits((s) => ({ ...s, ...d.traits }));
+        setF((s) => ({ ...s, team: d.team || s.team, position: d.position || s.position }));
         setRationales(d.rationales || {});
         setConfidence(d.confidence || '');
         setAiWarning(d.warningSigns || '');
@@ -1894,9 +1895,10 @@ function AdminEditTraits({ cards, adminToken, onSaved }) {
       } else {
         if (d.traits) setTraits((s) => ({ ...s, ...d.traits }));
         if (d.warningSigns) setBearCase(d.warningSigns);
+        setDetails((s) => ({ ...s, team: d.team || s.team, position: d.position || s.position }));
         setRationales(d.rationales || {});
         setConfidence(d.confidence || '');
-        setAiMsg({ ok: true, text: 'AI filled traits + warning signs — review, then Save card.' });
+        setAiMsg({ ok: true, text: 'AI filled team, position, traits + warning signs — review, then Save card.' });
       }
     } catch {
       setAiMsg({ ok: false, text: 'Could not reach the server.' });
